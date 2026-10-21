@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<form class="filters" action="/" hx-get="/" hx-target="#list" hx-select="#list" hx-swap="outerHTML"
+      hx-push-url="true" hx-trigger="input delay:250ms">
+  <input type="hidden" name="filtered" value="1">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search name, designer, book, notes…" aria-label="Search">
+  <div class="chips">
+    {% for s in STATUSES %}
+    <label class="chip status-{{ s }}">
+      <input type="checkbox" name="status" value="{{ s }}" {% if s in statuses %}checked{% endif %}>
+      {{ STATUS_LABELS[s] }}
+    </label>
+    {% endfor %}
+  </div>
+  <label class="sort">Sort
+    <select name="sort">
+      <option value="mine" {% if sort == "mine" %}selected{% endif %}>My order</option>
+      <option value="complexity" {% if sort == "complexity" %}selected{% endif %}>Complexity</option>
+      <option value="book" {% if sort == "book" %}selected{% endif %}>Book</option>
+    </select>
+  </label>
+</form>
+
+<ul id="list" class="models {% if sort == 'mine' %}sortable{% endif %}">
+  {% for m in models %}
+    {% include "_row.html" %}
+  {% else %}
+    <li class="empty">Nothing matches. <a href="/models/new">Add a model</a> or change the filters.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

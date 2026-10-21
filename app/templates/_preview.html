@@ -1,0 +1,10 @@
+{% if ok %}
+<a href="/books/{{ book | urlpath }}#page={{ page }}" target="_blank" rel="noopener">
+  <img src="/thumb?{{ urlencode({'book': book, 'page': page}) }}" alt="No page {{ page }} in this book">
+</a>
+<p class="hint">PDF page {{ page }}{% if printed %} (printed page + offset {{ offset }}){% endif %}. Click to open.</p>
+{% elif book %}
+<p class="hint">Pick a book from the list and enter a page to see a preview.</p>
+{% else %}
+<p class="hint">The diagram page preview shows up here.</p>
+{% endif %}

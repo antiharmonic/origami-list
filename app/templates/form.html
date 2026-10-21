@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ m.name if m else "Add model" }} · Origami List{% endblock %}
+{% block content %}
+{% set v = m or prefill %}
+<h1>{{ "Edit model" if m else "Add model" }}</h1>
+<form class="model-form" method="post" action="{{ '/models/%d' % m.id if m else '/models' }}" enctype="multipart/form-data">
+  <div class="cols">
+    <div class="col">
+      <label>Name <input name="name" required autofocus value="{{ v.name or '' }}"></label>
+      <label>Designer <input name="designer" value="{{ v.designer or '' }}"></label>
+
+      <label>Book
+        <input id="book" name="book" autocomplete="off" placeholder="Type to search your books…"
+               value="{{ (m.book_path if m else prefill.book) or '' }}"
+               hx-get="/api/books" hx-trigger="input changed delay:200ms" hx-target="#book-results">
+      </label>
+      <div id="book-results" class="results"></div>
+
+      <div class="row">
+        <label class="page">Page <input id="page" name="page" type="number" min="1" value="{{ v.page or '' }}"></label>
+        <label class="check"><input type="checkbox" id="printed" name="printed" value="1">
+          Printed page number (add the book's page offset)</label>
+      </div>
+
+      <label>Web link <input name="url" type="url" placeholder="https://…" value="{{ v.url or '' }}"></label>
+
+      <div class="row">
+        <label>Complexity
+          <select name="complexity">
+            <option value="">–</option>
+            {% for n in range(1, 6) %}
+            <option value="{{ n }}" {% if (v.complexity | string) == (n | string) %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Status
+          <select name="status">
+            {% for s in STATUSES %}
+            <option value="{{ s }}" {% if s == (v.status or "want") %}selected{% endif %}>{{ STATUS_LABELS[s] }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <label>Paper <input name="paper" placeholder="e.g. 35cm kami, foil, 2 sheets" value="{{ v.paper or '' }}"></label>
+      <label>Notes <textarea name="notes" rows="4">{{ v.notes or '' }}</textarea></label>
+
+      <label>Photo of your fold <input type="file" name="photo" accept="image/*"></label>
+      {% if m and m.photo %}
+      <div class="current-photo">
+        <img src="/photos/{{ m.photo }}" alt="Current photo">
+        <label class="check"><input type="checkbox" name="remove_photo" value="1"> Remove photo</label>
+      </div>
+      {% endif %}
+
+      {% if not m %}
+      <div class="row">
+        <label class="check"><input type="radio" name="position" value="bottom" checked> Add to bottom</label>
+        <label class="check"><input type="radio" name="position" value="top"> Add to top</label>
+      </div>
+      {% endif %}
+
+      <div class="buttons">
+        <button type="submit" class="primary">Save</button>
+        <a href="/" class="button">Cancel</a>
+      </div>
+    </div>
+
+    <div class="col preview-col">
+      <div id="preview" hx-get="/api/preview" hx-include="#book, #page, #printed"
+           hx-trigger="load, change from:#book, input changed delay:400ms from:#page, change from:#printed">
+      </div>
+    </div>
+  </div>
+</form>
+
+{% if m %}
+<form method="post" action="/models/{{ m.id }}/delete" class="delete-form"
+      onsubmit="return confirm('Delete ' + {{ m.name | tojson | forceescape }} + '?')">
+  <button type="submit" class="danger">Delete model</button>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Picking a search result fills the book field and refreshes the preview.
+  document.getElementById("book-results").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-path]");
+    if (!btn) return;
+    var book = document.getElementById("book");
+    book.value = btn.dataset.path;
+    this.innerHTML = "";
+    book.dispatchEvent(new Event("change", { bubbles: true }));
+    document.getElementById("page").focus();
+  });
+</script>
+{% endblock %}

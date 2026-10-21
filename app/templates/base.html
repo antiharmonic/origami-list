@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Origami List{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js"></script>
+  <script src="/static/sortable.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Origami List</a>
+    <nav>
+      <a href="/models/new" class="button primary">+ Add model</a>
+      <a href="/books-admin">Books &amp; import</a>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    // Drag-to-reorder on the main list (only when sorted by "my order").
+    htmx.onLoad(function (root) {
+      var list = root.id === "list" ? root : root.querySelector && root.querySelector("#list");
+      if (!list || !list.classList.contains("sortable") || list._sortable) return;
+      list._sortable = Sortable.create(list, {
+        handle: ".handle",
+        animation: 150,
+        onEnd: function (e) {
+          if (e.oldIndex === e.newIndex) return;
+          var prev = e.item.previousElementSibling, next = e.item.nextElementSibling;
+          fetch("/models/" + e.item.dataset.id + "/move", {
+            method: "POST",
+            body: new URLSearchParams({
+              prev: prev && prev.dataset.id || "",
+              next: next && next.dataset.id || "",
+            }),
+          });
+        },
+      });
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

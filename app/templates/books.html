@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Books & import · Origami List{% endblock %}
+{% block content %}
+<h1>Books &amp; import</h1>
+{% if message %}<pre class="message">{{ message }}</pre>{% endif %}
+
+<section class="panel">
+  <h2>Library</h2>
+  <p>{{ file_count }} PDF files found in the mounted books folder.</p>
+  <form method="post" action="/api/rescan"><button type="submit">Rescan folder</button></form>
+</section>
+
+<section class="panel">
+  <h2>Books in your list</h2>
+  <p class="hint">Page offset turns a printed page number into a PDF page: PDF page = printed page + offset.
+    Set it once per book and you can type page numbers straight from the book's contents.</p>
+  {% for b in books %}
+  <form class="book-row" method="post" action="/books-admin/{{ b.id }}">
+    <input name="title" value="{{ b.title }}" aria-label="Title" title="{{ b.path }}">
+    <label>Offset <input name="page_offset" type="number" value="{{ b.page_offset }}"></label>
+    <span class="count">{{ b.model_count }} model{{ "" if b.model_count == 1 else "s" }}</span>
+    <a href="/books/{{ b.path | urlpath }}" target="_blank" rel="noopener">Open</a>
+    <button type="submit">Save</button>
+  </form>
+  {% else %}
+  <p>No books yet. Add a model that uses a book and it shows up here.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>Import / export</h2>
+  <form method="post" action="/import" enctype="multipart/form-data" class="row">
+    <input type="file" name="file" accept=".csv,text/csv" required>
+    <button type="submit">Import CSV</button>
+  </form>
+  <p class="hint">Columns: <code>model, author, complexity, suggested_paper, book, file, page, folded, notes</code>,
+    or the columns of an export. Rows are added; nothing is overwritten.</p>
+  <p><a href="/export.csv" class="button">Export CSV</a></p>
+</section>
+
+<section class="panel">
+  <h2>Bookmarklet</h2>
+  <p>Drag this to your bookmarks toolbar. Clicking it on a web diagram or video opens the add form with the link filled in:
+    <a class="button" href="javascript:void(window.open('{{ base_url }}add?'+new URLSearchParams({url:location.href,title:document.title})))">+ Origami</a></p>
+</section>
+{% endblock %}

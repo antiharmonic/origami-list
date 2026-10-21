@@ -1,0 +1,45 @@
+{% if m.book_path %}
+  {% set href = "/books/" ~ (m.book_path | urlpath) ~ "#page=" ~ (m.page or 1) %}
+{% else %}
+  {% set href = m.url %}
+{% endif %}
+<li class="model status-{{ m.status }}" data-id="{{ m.id }}">
+  <span class="handle" title="Drag to reorder" aria-hidden="true">⠿</span>
+  <a class="thumb" {% if href %}href="{{ href }}" target="_blank" rel="noopener"{% endif %}>
+    {% if m.book_path and m.page %}
+      <img loading="lazy" src="/thumb?{{ urlencode({'book': m.book_path, 'page': m.page}) }}" alt="">
+    {% else %}
+      <span class="nothumb">{{ "web" if m.url else "no page" }}</span>
+    {% endif %}
+  </a>
+  {% if m.photo %}
+  <a class="thumb photo" href="/photos/{{ m.photo }}" target="_blank" title="My fold">
+    <img loading="lazy" src="/photos/{{ m.photo }}" alt="My fold">
+  </a>
+  {% endif %}
+  <div class="info">
+    <div class="title">
+      {% if href %}<a href="{{ href }}" target="_blank" rel="noopener">{{ m.name }}</a>{% else %}{{ m.name }}{% endif %}
+      {% if m.designer %}<span class="designer">{{ m.designer }}</span>{% endif %}
+    </div>
+    <div class="meta">
+      {% if m.book_title %}<span>{{ m.book_title }}{% if m.page %} · p.{{ m.page }}{% endif %}</span>{% endif %}
+      {% if m.url and m.book_path %}<a href="{{ m.url }}" target="_blank" rel="noopener">web link</a>{% endif %}
+      {% if m.url and not m.book_path %}<span class="url">{{ m.url }}</span>{% endif %}
+      {% if m.complexity %}
+        <span class="complexity" title="Complexity {{ m.complexity }}/5">{{ "●" * m.complexity }}{{ "○" * [5 - m.complexity, 0] | max }}</span>
+      {% endif %}
+      {% if m.paper %}<span class="paper">{{ m.paper }}</span>{% endif %}
+    </div>
+    {% if m.notes %}<p class="notes">{{ m.notes }}</p>{% endif %}
+  </div>
+  <div class="actions">
+    <select name="status" class="status-select" aria-label="Status"
+            hx-post="/models/{{ m.id }}/status" hx-target="closest li" hx-swap="outerHTML">
+      {% for s in STATUSES %}
+      <option value="{{ s }}" {% if s == m.status %}selected{% endif %}>{{ STATUS_LABELS[s] }}</option>
+      {% endfor %}
+    </select>
+    <a href="/models/{{ m.id }}/edit">Edit</a>
+  </div>
+</li>
