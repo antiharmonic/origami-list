@@ -19,7 +19,7 @@
       <option value="book" {% if sort == "book" %}selected{% endif %}>Book</option>
     </select>
   </label>
-  <span id="list-count">Showing {{ models | length }} of {{ total }}</span>
+  <span id="list-count" class="view-count">Showing {{ models | length }} of {{ total }}</span>
 </form>
 
 <ul id="list" class="models {% if sort == 'mine' %}sortable{% endif %}">

@@ -1,0 +1,20 @@
+{% set href = "/library/book?" ~ urlencode({'path': b.path}) %}
+<article class="book-card bstatus-{{ b.status }}">
+  <a class="cover" href="{{ href }}">
+    <img loading="lazy" src="/thumb?{{ urlencode({'book': b.path, 'page': b.cover_page}) }}" alt="">
+  </a>
+  <div class="book-info">
+    <a class="book-title" href="{{ href }}" title="{{ b.path }}">{{ b.title }}</a>
+    <span class="folder">Added {{ b.added_at | date }}{% if b.folder %} · {{ b.folder }}{% endif %}</span>
+    <div class="book-meta">
+      <input type="hidden" name="path" value="{{ b.path }}">
+      <select name="status" aria-label="Book status" hx-post="/library/status" hx-include="closest .book-meta"
+              hx-target="closest article" hx-swap="outerHTML">
+        {% for s in BOOK_STATUSES %}
+        <option value="{{ s }}" {% if s == b.status %}selected{% endif %}>{{ BOOK_STATUS_LABELS[s] }}</option>
+        {% endfor %}
+      </select>
+      {% if b.model_count %}<span class="count">{{ b.model_count }} model{{ "" if b.model_count == 1 else "s" }}</span>{% endif %}
+    </div>
+  </div>
+</article>

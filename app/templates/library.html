@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Library · Origami List{% endblock %}
+{% block content %}
+<form class="filters" action="/library" hx-get="/library" hx-target="#library" hx-select="#library"
+      hx-swap="outerHTML" hx-select-oob="#library-count" hx-push-url="true" hx-trigger="input delay:250ms">
+  <input type="hidden" name="filtered" value="1">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search title, file, designers, notes…" aria-label="Search">
+  <div class="chips">
+    {% for s in BOOK_STATUSES %}
+    <label class="chip bstatus-{{ s }}">
+      <input type="checkbox" name="status" value="{{ s }}" {% if s in statuses %}checked{% endif %}>
+      {{ BOOK_STATUS_LABELS[s] }}
+    </label>
+    {% endfor %}
+    <label class="chip">
+      <input type="checkbox" name="has_models" value="1" {% if has_models %}checked{% endif %}> Has models
+    </label>
+  </div>
+  <label class="sort">Sort
+    <select name="sort">
+      <option value="recent" {% if sort == "recent" %}selected{% endif %}>Recently added</option>
+      <option value="title" {% if sort == "title" %}selected{% endif %}>Title</option>
+      <option value="models" {% if sort == "models" %}selected{% endif %}>Most models</option>
+      <option value="folder" {% if sort == "folder" %}selected{% endif %}>Folder</option>
+    </select>
+  </label>
+  <span id="library-count" class="view-count">Showing {{ entries | length }} of {{ total }}</span>
+</form>
+{% include "_library_summary.html" %}
+
+<div id="library" class="book-grid">
+  {% for b in entries %}
+    {% include "_book_card.html" %}
+  {% else %}
+    <p class="empty">No books match. Try other filters.</p>
+  {% endfor %}
+</div>
+{% endblock %}

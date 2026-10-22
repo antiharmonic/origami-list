@@ -9,3 +9,4 @@ services:
     volumes:
       - ${HOME}/Books/Origami:/books:ro
       - ./data:/data
+      - /etc/localtime:/etc/localtime:ro  # show dates (e.g. book "added") in local time

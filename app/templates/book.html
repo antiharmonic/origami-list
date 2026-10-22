@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ b.title }} · Origami List{% endblock %}
+{% block content %}
+{% set pdf = "/books/" ~ (b.path | urlpath) %}
+<p><a href="/library">← Library</a></p>
+<div class="book-page">
+  <div class="book-cover-col">
+    <a href="{{ pdf }}" target="_blank" rel="noopener">
+      <img src="/thumb?{{ urlencode({'book': b.path, 'page': b.cover_page}) }}" alt="Cover of {{ b.title }}">
+    </a>
+    <div class="buttons stacked">
+      <a class="button primary" href="/models/new?{{ urlencode({'book': b.path, 'designer': b.designers if ',' not in b.designers else ''}) }}">+ Add model from this book</a>
+      <a class="button" href="{{ pdf }}" target="_blank" rel="noopener">Open PDF</a>
+    </div>
+  </div>
+
+  <div class="book-main">
+    <h1>{{ b.title }}</h1>
+    <p class="hint">{{ b.path }} · added {{ b.added_at | date }}</p>
+
+    <form method="post" action="/library/status" class="status-buttons">
+      <input type="hidden" name="path" value="{{ b.path }}">
+      <input type="hidden" name="back" value="book">
+      {% for s in BOOK_STATUSES %}
+      <button type="submit" name="status" value="{{ s }}" class="{{ 'primary' if s == b.status }}">{{ BOOK_STATUS_LABELS[s] }}</button>
+      {% endfor %}
+    </form>
+
+    <section>
+      <h2>Models from this book ({{ models | length }})</h2>
+      {% if models %}
+      <ul class="book-models">
+        {% for m in models %}
+        <li>
+          <span class="page-no">{% if m.page %}p.{{ m.page }}{% endif %}</span>
+          <a href="/models/{{ m.id }}/edit">{{ m.name }}</a>
+          {% if m.designer %}<span class="designer">{{ m.designer }}</span>{% endif %}
+          <span class="status-{{ m.status }}">{{ STATUS_LABELS[m.status] }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint">None yet. Open the PDF in another window and use “Add model from this book” with Save and new.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Details</h2>
+      {% if saved %}<p class="flash">Saved.</p>{% endif %}
+      <form method="post" action="/library/book" class="model-form book-details">
+        <input type="hidden" name="path" value="{{ b.path }}">
+        <label>Title <input name="title" value="{{ b.title }}"></label>
+        <label>Designers <input name="designers" value="{{ b.designers }}" placeholder="e.g. Robert J. Lang, John Montroll"></label>
+        <label>Notes <textarea name="notes" rows="3">{{ b.notes }}</textarea></label>
+        <div class="row">
+          <label title="PDF page minus printed page">Page offset <input name="page_offset" type="number" value="{{ b.page_offset }}"></label>
+          <label title="Which PDF page to use as the cover">Cover page <input name="cover_page" type="number" min="1" value="{{ b.cover_page }}"></label>
+        </div>
+        <div class="buttons"><button type="submit" class="primary">Save details</button></div>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

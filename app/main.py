@@ -1,6 +1,7 @@
 import csv
 import io
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -14,6 +15,7 @@ from . import books, config, db, import_csv, thumbs
 APP_DIR = Path(__file__).parent
 PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 DEFAULT_STATUSES = ["want", "attempted"]
+LIBRARY_DEFAULT_STATUSES = ["unexplored", "browsing"]
 
 
 @asynccontextmanager
@@ -30,6 +32,7 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 templates.env.filters["urlpath"] = lambda p: quote(p or "")
+templates.env.filters["date"] = lambda ts: datetime.fromtimestamp(ts).strftime("%Y-%m-%d") if ts else ""
 
 
 def todo_count():
@@ -42,7 +45,8 @@ def todo_count():
 
 
 templates.env.globals.update(STATUSES=db.STATUSES, STATUS_LABELS=db.STATUS_LABELS, urlencode=urlencode,
-                             todo_count=todo_count)
+                             todo_count=todo_count, BOOK_STATUSES=db.BOOK_STATUSES,
+                             BOOK_STATUS_LABELS=db.BOOK_STATUS_LABELS)
 
 
 def get_conn():
@@ -162,9 +166,10 @@ async def _fields_from_form(request: Request, conn):
         if not books.resolve(book_path):
             raise HTTPException(400, f"book not found: {book_path}")
         fields["book_id"] = db.get_or_create_book(conn, book_path)
+        db.mark_browsing(conn, fields["book_id"])
         offset = _opt_int(form.get("offset"))
         if offset is not None:
-            db.set_book_offset(conn, fields["book_id"], offset)
+            db.update_book_meta(conn, fields["book_id"], {"page_offset": offset})
         else:
             offset = db.get_book(conn, fields["book_id"])["page_offset"]
         page = _opt_int(form.get("page"))
@@ -277,17 +282,122 @@ def photo(name: str):
 
 
 @app.get("/books-admin", response_class=HTMLResponse)
-def books_admin(request: Request, conn=Depends(get_conn)):
+def books_admin(request: Request):
     return templates.TemplateResponse(request, "books.html", {
-        "books": db.list_books(conn), "file_count": len(books.scan()), "message": request.query_params.get("msg"),
+        "file_count": len(books.scan()), "message": request.query_params.get("msg"),
         "base_url": str(request.base_url),
     })
 
 
-@app.post("/books-admin/{book_id}")
-def update_book(book_id: int, title: str = Form(...), page_offset: str = Form("0"), conn=Depends(get_conn)):
-    db.update_book(conn, book_id, title.strip(), _opt_int(page_offset) or 0)
-    return _redirect("/books-admin")
+# --- library ---
+
+LIBRARY_SORTS = {
+    "title": lambda b: b["title"].lower(),
+    "recent": lambda b: (-b["added_at"], b["title"].lower()),
+    "models": lambda b: (-b["model_count"], b["title"].lower()),
+    "folder": lambda b: (b["folder"].lower(), b["title"].lower()),
+}
+
+
+def _library_entry(path, row, added_at=0):
+    """A scanned PDF merged with its books row; files with no row get the defaults."""
+    return {
+        "path": path,
+        "folder": books.folder(path),
+        "title": row["title"] if row else books.clean_title(path),
+        "status": row["status"] if row else "unexplored",
+        "model_count": row["model_count"] if row else 0,
+        "designers": row["designers"] if row else "",
+        "notes": row["notes"] if row else "",
+        "page_offset": row["page_offset"] if row else 0,
+        "cover_page": row["cover_page"] if row else 1,
+        "id": row["id"] if row else None,
+        "added_at": added_at,
+    }
+
+
+def _book_entry_or_404(conn, path):
+    if not books.resolve(path):
+        raise HTTPException(404)
+    added = db.record_added(conn, books.ctimes())
+    return _library_entry(path, db.library_rows(conn, path).get(path), added.get(path, 0))
+
+
+def _library_summary(entries):
+    counts = {s: 0 for s in db.BOOK_STATUSES}
+    for b in entries:
+        counts[b["status"]] += 1
+    return counts
+
+
+@app.get("/library", response_class=HTMLResponse)
+def library(request: Request, conn=Depends(get_conn)):
+    params = request.query_params
+    statuses = [s for s in params.getlist("status") if s in db.BOOK_STATUSES]
+    if "filtered" not in params:
+        statuses = LIBRARY_DEFAULT_STATUSES
+    q = params.get("q", "")
+    has_models = bool(params.get("has_models"))
+    sort = params.get("sort", "recent")
+    if sort not in LIBRARY_SORTS:
+        sort = "recent"
+
+    rows = db.library_rows(conn)
+    added = db.record_added(conn, books.ctimes())
+    entries = [_library_entry(path, rows.get(path), added.get(path, 0)) for path in books.scan()]
+    terms = q.lower().split()
+    shown = [
+        b for b in entries
+        if b["status"] in statuses
+        and (not has_models or b["model_count"])
+        and all(t in f"{b['title']} {b['path']} {b['designers']} {b['notes']}".lower() for t in terms)
+    ]
+    shown.sort(key=LIBRARY_SORTS[sort])
+    return templates.TemplateResponse(request, "library.html", {
+        "entries": shown, "total": len(entries), "summary": _library_summary(entries),
+        "statuses": statuses, "q": q, "has_models": has_models, "sort": sort,
+    })
+
+
+@app.post("/library/status", response_class=HTMLResponse)
+def library_status(path: str = Form(...), status: str = Form(...), back: str = Form(""), conn=Depends(get_conn)):
+    if status not in db.BOOK_STATUSES:
+        raise HTTPException(400, "bad status")
+    _book_entry_or_404(conn, path)
+    db.update_book_meta(conn, db.get_or_create_book(conn, path), {"status": status})
+    if back == "book":
+        return _redirect("/library/book?" + urlencode({"path": path}))
+    # The card, plus the status summary out-of-band.
+    rows = db.library_rows(conn)
+    added = db.record_added(conn, books.ctimes())
+    card = templates.get_template("_book_card.html").render(b=_library_entry(path, rows.get(path), added.get(path, 0)))
+    summary = templates.get_template("_library_summary.html").render(
+        summary=_library_summary([_library_entry(p, rows.get(p)) for p in books.scan()]), oob=True)
+    return HTMLResponse(card + summary)
+
+
+@app.get("/library/book", response_class=HTMLResponse)
+def library_book(request: Request, path: str, conn=Depends(get_conn)):
+    b = _book_entry_or_404(conn, path)
+    models = db.list_models(conn, book_id=b["id"], sort="book") if b["id"] else []
+    return templates.TemplateResponse(request, "book.html", {
+        "b": b, "models": models, "saved": bool(request.query_params.get("saved")),
+    })
+
+
+@app.post("/library/book")
+def save_library_book(path: str = Form(...), title: str = Form(""), designers: str = Form(""),
+                      notes: str = Form(""), page_offset: str = Form("0"), cover_page: str = Form("1"),
+                      conn=Depends(get_conn)):
+    _book_entry_or_404(conn, path)
+    db.update_book_meta(conn, db.get_or_create_book(conn, path), {
+        "title": title.strip() or books.clean_title(path),
+        "designers": designers.strip(),
+        "notes": notes.strip(),
+        "page_offset": _opt_int(page_offset) or 0,
+        "cover_page": max(_opt_int(cover_page) or 1, 1),
+    })
+    return _redirect("/library/book?" + urlencode({"path": path, "saved": 1}))
 
 
 # --- import / export ---

@@ -93,7 +93,7 @@ def test_add_edit_status_and_filters(client, conn):
     assert (m["name"], m["page"], m["complexity"]) == ("Crane", 2, 2)
 
     # Printed page numbers get the book's offset added.
-    db.update_book(conn, m["book_id"], "Nature Study", 1)
+    db.update_book_meta(conn, m["book_id"], {"page_offset": 1})
     client.post(f"/models/{m['id']}", data={"name": "Crane", "book": m["book_path"], "page": "1", "printed": "1",
                                             "status": "want"})
     assert db.get_model(conn, m["id"])["page"] == 2
@@ -167,3 +167,81 @@ def test_counts(client, conn):
     r = client.post(f"/models/{a['id']}/status", data={"status": "folded"})
     assert re.search(r'id="todo-count"[^>]*hx-swap-oob="true"[^>]*>2 to fold', r.text)
     assert f'data-id="{a["id"]}"' in r.text
+
+
+def test_migration_marks_used_books_browsing(dirs, tmp_path):
+    c = db.connect(tmp_path / "old.db")
+    c.executescript(db.MIGRATIONS[0])
+    c.execute("PRAGMA user_version = 1")
+    c.execute("INSERT INTO books (path, title) VALUES ('a.pdf', 'A'), ('b.pdf', 'B')")
+    c.execute("INSERT INTO models (name, book_id, position, created_at, updated_at) VALUES ('M', 1, 1, '', '')")
+    c.commit()
+    db.migrate(c)
+    statuses = dict(c.execute("SELECT path, status FROM books").fetchall())
+    assert statuses == {"a.pdf": "browsing", "b.pdf": "unexplored"}
+
+
+NATURE = "sub/Kato - Nature Study.pdf"
+INSECTS = "Lang - Origami Insects (z-library.sk, 1lib.sk).pdf"
+
+
+def test_library_lists_all_pdfs_and_filters(client, conn):
+    page = client.get("/library").text
+    assert "Showing 2 of 2" in page and "Lang - Origami Insects" in page and "Kato - Nature Study" in page
+    assert "2 unexplored · 0 browsing" in page
+
+    # Setting a status on a book with no row creates the row.
+    r = client.post("/library/status", data={"path": INSECTS, "status": "skip"})
+    assert 'class="book-card bstatus-skip"' in r.text
+    assert 'id="library-summary"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert db.get_book_by_path(conn, INSECTS)["status"] == "skip"
+
+    page = client.get("/library").text  # default filter: unexplored + browsing
+    assert "Showing 1 of 2" in page and "Origami Insects" not in page
+    page = client.get("/library", params={"filtered": 1, "status": "skip", "q": "insects"}).text
+    assert "Showing 1 of 2" in page
+    page = client.get("/library", params={"filtered": 1, "status": db.BOOK_STATUSES, "has_models": 1}).text
+    assert "Showing 0 of 2" in page
+
+
+def test_adding_model_bumps_book_to_browsing(client, conn):
+    client.post("/models", data={"name": "Owl", "book": NATURE, "page": "1"})
+    assert db.get_book_by_path(conn, NATURE)["status"] == "browsing"
+    # An explicit status is not overridden by later models.
+    client.post("/library/status", data={"path": NATURE, "status": "explored"})
+    client.post("/models", data={"name": "Bat", "book": NATURE, "page": "2"})
+    assert db.get_book_by_path(conn, NATURE)["status"] == "explored"
+
+
+def test_book_page(client, conn):
+    assert client.get("/library/book", params={"path": "../secret.pdf"}).status_code == 404
+    assert client.get("/library/book", params={"path": "missing.pdf"}).status_code == 404
+
+    page = client.get("/library/book", params={"path": NATURE}).text
+    assert "Models from this book (0)" in page
+
+    r = client.post("/library/book", data={"path": NATURE, "title": "Nature Study", "designers": "Shuki Kato",
+                                           "notes": "yacht!", "page_offset": "6", "cover_page": "2"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    book = db.get_book_by_path(conn, NATURE)
+    assert (book["title"], book["designers"], book["page_offset"], book["cover_page"]) == ("Nature Study", "Shuki Kato", 6, 2)
+
+    client.post("/models", data={"name": "Dragonfly", "book": NATURE, "page": "2"})
+    page = client.get("/library/book", params={"path": NATURE}).text
+    assert "Models from this book (1)" in page and "Dragonfly" in page
+    # Designers search in the library.
+    assert "Showing 1 of 2" in client.get("/library", params={"filtered": 1, "status": db.BOOK_STATUSES, "q": "kato"}).text
+
+
+def test_added_date_is_frozen_and_drives_recent_sort(client, conn):
+    assert db.record_added(conn, {"x.pdf": 100.0})["x.pdf"] == 100.0
+    assert db.record_added(conn, {"x.pdf": 999.0})["x.pdf"] == 100.0  # first sighting wins
+
+    # Insects arrived after Nature Study: recent sort (the default) puts it first, title sort doesn't.
+    db.record_added(conn, {NATURE: 1_000_000.0, INSECTS: 2_000_000_000.0})
+    page = client.get("/library").text
+    assert page.index("Lang - Origami Insects") < page.index("Kato - Nature Study")
+    assert "Added 1970-01-1" in page  # 1,000,000s after the epoch, local time
+    page = client.get("/library", params={"filtered": 1, "status": db.BOOK_STATUSES, "sort": "title"}).text
+    assert page.index("Kato - Nature Study") < page.index("Lang - Origami Insects")

@@ -6,6 +6,9 @@ from .books import clean_title
 
 STATUSES = ["want", "attempted", "folded", "nailed"]
 STATUS_LABELS = {"want": "Want", "attempted": "Attempted", "folded": "Folded", "nailed": "Nailed it"}
+BOOK_STATUSES = ["unexplored", "browsing", "explored", "skip"]
+BOOK_STATUS_LABELS = {"unexplored": "Unexplored", "browsing": "Browsing", "explored": "Explored", "skip": "Skip"}
+BOOK_FIELDS = ["title", "page_offset", "status", "designers", "notes", "cover_page"]
 MODEL_FIELDS = ["name", "designer", "book_id", "page", "url", "complexity", "paper", "status", "notes", "photo"]
 
 # Each entry upgrades the schema by one version (tracked in PRAGMA user_version).
@@ -34,6 +37,19 @@ MIGRATIONS = [
         updated_at TEXT NOT NULL
     );
     CREATE INDEX models_position ON models(position);
+    """,
+    """
+    ALTER TABLE books ADD COLUMN status TEXT NOT NULL DEFAULT 'unexplored';
+    ALTER TABLE books ADD COLUMN designers TEXT NOT NULL DEFAULT '';
+    ALTER TABLE books ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+    ALTER TABLE books ADD COLUMN cover_page INTEGER NOT NULL DEFAULT 1;
+    UPDATE books SET status = 'browsing' WHERE id IN (SELECT book_id FROM models WHERE book_id IS NOT NULL);
+    """,
+    """
+    CREATE TABLE book_files (
+        path TEXT PRIMARY KEY,
+        added_at REAL NOT NULL
+    );
     """,
 ]
 
@@ -80,22 +96,38 @@ def get_book_by_path(conn, path):
     return conn.execute("SELECT * FROM books WHERE path = ?", (path,)).fetchone()
 
 
-def list_books(conn):
-    return conn.execute(
-        """SELECT b.*, COUNT(m.id) AS model_count
-           FROM books b LEFT JOIN models m ON m.book_id = b.id
-           GROUP BY b.id ORDER BY b.title COLLATE NOCASE"""
-    ).fetchall()
+def library_rows(conn, path=None):
+    """Book rows with their model counts, keyed by path (optionally just one path)."""
+    sql = """SELECT b.*, COUNT(m.id) AS model_count
+             FROM books b LEFT JOIN models m ON m.book_id = b.id"""
+    params = []
+    if path is not None:
+        sql += " WHERE b.path = ?"
+        params.append(path)
+    sql += " GROUP BY b.id"
+    return {r["path"]: r for r in conn.execute(sql, params)}
 
 
-def set_book_offset(conn, book_id, page_offset):
+def record_added(conn, ctimes):
+    """Remember when each file was first seen (its ctime then); later ctime changes don't move it."""
     with conn:
-        conn.execute("UPDATE books SET page_offset = ? WHERE id = ?", (page_offset, book_id))
+        conn.executemany("INSERT OR IGNORE INTO book_files (path, added_at) VALUES (?, ?)", ctimes.items())
+    return dict(conn.execute("SELECT path, added_at FROM book_files").fetchall())
 
 
-def update_book(conn, book_id, title, page_offset):
+def update_book_meta(conn, book_id, fields):
+    data = {k: fields[k] for k in BOOK_FIELDS if k in fields}
+    if not data:
+        return
+    sets = ", ".join(f"{k} = ?" for k in data)
     with conn:
-        conn.execute("UPDATE books SET title = ?, page_offset = ? WHERE id = ?", (title, page_offset, book_id))
+        conn.execute(f"UPDATE books SET {sets} WHERE id = ?", [*data.values(), book_id])
+
+
+def mark_browsing(conn, book_id):
+    """Using a book for a model means it's being looked through."""
+    with conn:
+        conn.execute("UPDATE books SET status = 'browsing' WHERE id = ? AND status = 'unexplored'", (book_id,))
 
 
 # --- models ---
@@ -112,8 +144,11 @@ SORTS = {
 }
 
 
-def list_models(conn, statuses=None, q="", sort="mine"):
+def list_models(conn, statuses=None, q="", sort="mine", book_id=None):
     where, params = [], []
+    if book_id is not None:
+        where.append("m.book_id = ?")
+        params.append(book_id)
     if statuses:
         where.append(f"m.status IN ({','.join('?' * len(statuses))})")
         params += statuses

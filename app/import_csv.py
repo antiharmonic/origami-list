@@ -72,6 +72,7 @@ def import_text(conn, text):
             rel = file if books.resolve(file) else books.find_by_basename(file)
             if rel:
                 fields["book_id"] = db.get_or_create_book(conn, rel)
+                db.mark_browsing(conn, fields["book_id"])
             else:
                 book_title = _get(row, "book_title") or file
                 warnings.append(f"line {line}: book file not found for {name!r}: {file}")

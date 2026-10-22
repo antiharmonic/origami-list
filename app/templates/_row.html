@@ -23,7 +23,7 @@
       {% if m.designer %}<span class="designer">{{ m.designer }}</span>{% endif %}
     </div>
     <div class="meta">
-      {% if m.book_title %}<span>{{ m.book_title }}{% if m.page %} · p.{{ m.page }}{% endif %}</span>{% endif %}
+      {% if m.book_title %}<span><a class="book-link" href="/library/book?{{ urlencode({'path': m.book_path}) }}">{{ m.book_title }}</a>{% if m.page %} · p.{{ m.page }}{% endif %}</span>{% endif %}
       {% if m.url and m.book_path %}<a href="{{ m.url }}" target="_blank" rel="noopener">web link</a>{% endif %}
       {% if m.url and not m.book_path %}<span class="url">{{ m.url }}</span>{% endif %}
       {% if m.complexity %}

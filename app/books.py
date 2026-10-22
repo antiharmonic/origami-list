@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 from . import config
 
 SCAN_TTL = 300
-_cache = {"at": 0.0, "files": []}
+_cache = {"at": 0.0, "files": [], "ctimes": {}}
 
 # Download-site tags and similar noise that shows up in filenames.
 _JUNK = re.compile(r"\s*\((?:[^)]*z-lib[^)]*|[^)]*1lib[^)]*)\)", re.IGNORECASE)
@@ -15,14 +15,25 @@ def scan(force=False):
     """Relative POSIX paths of every PDF under BOOKS_DIR, cached for SCAN_TTL seconds."""
     if force or time.monotonic() - _cache["at"] > SCAN_TTL:
         root = config.BOOKS_DIR
-        files = []
+        ctimes = {}
         if root.is_dir():
             for p in root.rglob("*"):
                 if p.suffix.lower() == ".pdf" and "__MACOSX" not in p.parts and p.is_file():
-                    files.append(p.relative_to(root).as_posix())
-        files.sort(key=str.lower)
-        _cache.update(at=time.monotonic(), files=files)
+                    ctimes[p.relative_to(root).as_posix()] = p.stat().st_ctime
+        _cache.update(at=time.monotonic(), files=sorted(ctimes, key=str.lower), ctimes=ctimes)
     return _cache["files"]
+
+
+def ctimes():
+    """{path: ctime} from the last scan. ctime is when the file landed in the folder (mtime is
+    often years older for downloads), so it's what "date added" is first recorded from."""
+    scan()
+    return _cache["ctimes"]
+
+
+def folder(rel):
+    parent = PurePosixPath(rel).parent.as_posix()
+    return "" if parent == "." else parent
 
 
 def search(q, limit=25):
