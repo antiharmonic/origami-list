@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <form class="filters" action="/" hx-get="/" hx-target="#list" hx-select="#list" hx-swap="outerHTML"
-      hx-push-url="true" hx-trigger="input delay:250ms">
+      hx-select-oob="#list-count" hx-push-url="true" hx-trigger="input delay:250ms">
   <input type="hidden" name="filtered" value="1">
   <input type="search" name="q" value="{{ q }}" placeholder="Search name, designer, book, notes…" aria-label="Search">
   <div class="chips">
@@ -19,6 +19,7 @@
       <option value="book" {% if sort == "book" %}selected{% endif %}>Book</option>
     </select>
   </label>
+  <span id="list-count">Showing {{ models | length }} of {{ total }}</span>
 </form>
 
 <ul id="list" class="models {% if sort == 'mine' %}sortable{% endif %}">

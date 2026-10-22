@@ -30,7 +30,19 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 templates.env.filters["urlpath"] = lambda p: quote(p or "")
-templates.env.globals.update(STATUSES=db.STATUSES, STATUS_LABELS=db.STATUS_LABELS, urlencode=urlencode)
+
+
+def todo_count():
+    """Models still to fold, for the header badge on every page."""
+    conn = db.connect()
+    try:
+        return db.count_models(conn, DEFAULT_STATUSES)
+    finally:
+        conn.close()
+
+
+templates.env.globals.update(STATUSES=db.STATUSES, STATUS_LABELS=db.STATUS_LABELS, urlencode=urlencode,
+                             todo_count=todo_count)
 
 
 def get_conn():
@@ -64,7 +76,7 @@ def index(request: Request, conn=Depends(get_conn)):
         sort = "mine"
     models = db.list_models(conn, statuses, q, sort)
     return templates.TemplateResponse(request, "list.html", {
-        "models": models, "statuses": statuses, "q": q, "sort": sort,
+        "models": models, "statuses": statuses, "q": q, "sort": sort, "total": db.count_models(conn),
     })
 
 
@@ -73,7 +85,10 @@ def set_status(request: Request, model_id: int, status: str = Form(...), conn=De
     if status not in db.STATUSES:
         raise HTTPException(400, "bad status")
     db.update_model(conn, model_id, {"status": status})
-    return templates.TemplateResponse(request, "_row.html", {"m": db.get_model(conn, model_id), "sortable": True})
+    # The row, plus an out-of-band swap so the header's "to fold" badge updates too.
+    row = templates.get_template("_row.html").render(m=db.get_model(conn, model_id))
+    badge = templates.get_template("_todo_count.html").render(oob=True)
+    return HTMLResponse(row + badge)
 
 
 @app.post("/models/{model_id}/move", status_code=204)

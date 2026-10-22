@@ -127,6 +127,14 @@ def list_models(conn, statuses=None, q="", sort="mine"):
     return conn.execute(sql, params).fetchall()
 
 
+def count_models(conn, statuses=None):
+    sql, params = "SELECT COUNT(*) FROM models", []
+    if statuses:
+        sql += f" WHERE status IN ({','.join('?' * len(statuses))})"
+        params = list(statuses)
+    return conn.execute(sql, params).fetchone()[0]
+
+
 def get_model(conn, model_id):
     return conn.execute(_MODEL_SELECT + " WHERE m.id = ?", (model_id,)).fetchone()
 

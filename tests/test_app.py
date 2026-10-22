@@ -150,3 +150,20 @@ def test_offset_on_form_is_saved_to_book(client, conn):
 
     r = client.get("/api/preview", params={"book": book, "page": "1", "printed": "1", "offset": "1"})
     assert "PDF page 2" in r.text
+
+
+def test_counts(client, conn):
+    for name, status in [("A", "want"), ("B", "attempted"), ("C", "folded"), ("D", "nailed"), ("Crab", "want")]:
+        db.create_model(conn, {"name": name, "status": status})
+    assert db.count_models(conn) == 5
+    assert db.count_models(conn, ["want", "attempted"]) == 3
+
+    page = client.get("/").text
+    assert "3 to fold" in page and "Showing 3 of 5" in page
+    page = client.get("/?filtered=1&status=want&q=crab").text
+    assert "3 to fold" in page and "Showing 1 of 5" in page
+
+    a = db.list_models(conn)[0]
+    r = client.post(f"/models/{a['id']}/status", data={"status": "folded"})
+    assert re.search(r'id="todo-count"[^>]*hx-swap-oob="true"[^>]*>2 to fold', r.text)
+    assert f'data-id="{a["id"]}"' in r.text

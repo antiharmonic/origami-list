@@ -10,7 +10,10 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/">Origami List</a>
+    <div class="brand-wrap">
+      <a class="brand" href="/">Origami List</a>
+      {% include "_todo_count.html" %}
+    </div>
     <nav>
       <a href="/models/new" class="button primary">+ Add model</a>
       <a href="/books-admin">Books &amp; import</a>
