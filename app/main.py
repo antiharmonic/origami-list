@@ -151,6 +151,19 @@ async def _fields_from_form(request: Request, conn):
     return form, fields
 
 
+def _after_save(form, fields):
+    """Back to the list, or for "Save and new" a fresh form with the designer and book carried over."""
+    if form.get("then") != "new":
+        return _redirect()
+    params = {
+        "designer": fields["designer"],
+        "book": (form.get("book") or "").strip() if fields["book_id"] else "",
+        "position": "top" if form.get("position") == "top" else "",
+        "saved": fields["name"],
+    }
+    return _redirect("/models/new?" + urlencode({k: v for k, v in params.items() if v}))
+
+
 @app.post("/models")
 async def create_model(request: Request, conn=Depends(get_conn)):
     form, fields = await _fields_from_form(request, conn)
@@ -158,7 +171,7 @@ async def create_model(request: Request, conn=Depends(get_conn)):
     photo = await _save_photo(model_id, form.get("photo"))
     if photo:
         db.update_model(conn, model_id, {"photo": photo})
-    return _redirect()
+    return _after_save(form, fields)
 
 
 @app.post("/models/{model_id}")
@@ -174,7 +187,7 @@ async def update_model(request: Request, model_id: int, conn=Depends(get_conn)):
             old.unlink()
         fields["photo"] = None
     db.update_model(conn, model_id, fields)
-    return _redirect()
+    return _after_save(form, fields)
 
 
 @app.post("/models/{model_id}/delete")

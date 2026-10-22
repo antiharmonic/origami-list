@@ -140,6 +140,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
 .buttons { display: flex; gap: .6rem; }
 .delete-form { margin-top: 2rem; }
 .hint { color: var(--muted); font-size: .9rem; }
+.flash { color: var(--folded); margin: -.5rem 0 1rem; }
 
 /* books page */
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 1rem; }

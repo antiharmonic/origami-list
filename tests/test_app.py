@@ -114,3 +114,18 @@ def test_thumbnail(client):
     assert r.status_code == 200 and r.content.startswith(b"\x89PNG")
     assert client.get("/thumb", params={"book": "sub/Kato - Nature Study.pdf", "page": 99}).status_code == 404
     assert client.get("/thumb", params={"book": "../secret.pdf", "page": 1}).status_code == 404
+
+
+def test_save_and_new_carries_designer_and_book(client, conn):
+    r = client.post("/models", data={"name": "Beetle", "designer": "Lang", "book": "sub/Kato - Nature Study.pdf",
+                                     "page": "2", "position": "top", "then": "new"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("/models/new?")
+    form = client.get(r.headers["location"]).text
+    assert "Saved “Beetle”" in form
+    assert 'value="Lang"' in form and 'value="sub/Kato - Nature Study.pdf"' in form
+    assert 'value="top" checked' in form
+
+    r = client.post("/models", data={"name": "Ant"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+    assert "New from" in client.get("/").text

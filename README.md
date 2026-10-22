@@ -2,7 +2,7 @@
 
 A to-fold list for origami models. It serves the PDFs in `~/Books/Origami` over HTTP so each entry opens at the right page, and shows a thumbnail of that page.
 
-Open http://localhost:8080 (or `http://<this-pc>:8080` from another device on the LAN).
+Open http://localhost:5748 (or `http://<this-pc>:5748` from another device on the LAN).
 
 ## Running
 ```sh

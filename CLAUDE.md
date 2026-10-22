@@ -22,7 +22,7 @@ There is no linter configured.
 
 ## Runtime layout
 
-- `compose.yaml` mounts `~/Books/Origami` read-only at `/books` and `./data` at `/data`. It runs as uid 1000 with `restart: unless-stopped`, which makes it start on boot because `docker.service` is enabled. Port 8080 is exposed on all interfaces (LAN access, no auth, by design).
+- `compose.yaml` mounts `~/Books/Origami` read-only at `/books` and `./data` at `/data`. It runs as uid 1000 with `restart: unless-stopped`, which makes it start on boot because `docker.service` is enabled. Port 5748 is exposed on all interfaces (LAN access, no auth, by design).
 - `./data/` holds `origami.db`, `thumbs/` (a disposable cache) and `photos/` (user uploads). It is gitignored and is the only state.
 - htmx and SortableJS are vendored in `app/static/`. No CDN is used and there is no build step.
 

@@ -3,6 +3,7 @@
 {% block content %}
 {% set v = m or prefill %}
 <h1>{{ "Edit model" if m else "Add model" }}</h1>
+{% if prefill.saved %}<p class="flash">Saved “{{ prefill.saved }}”.</p>{% endif %}
 <form class="model-form" method="post" action="{{ '/models/%d' % m.id if m else '/models' }}" enctype="multipart/form-data">
   <div class="cols">
     <div class="col">
@@ -54,13 +55,16 @@
 
       {% if not m %}
       <div class="row">
-        <label class="check"><input type="radio" name="position" value="bottom" checked> Add to bottom</label>
-        <label class="check"><input type="radio" name="position" value="top"> Add to top</label>
+        <label class="check"><input type="radio" name="position" value="bottom" {% if prefill.position != "top" %}checked{% endif %}> Add to bottom</label>
+        <label class="check"><input type="radio" name="position" value="top" {% if prefill.position == "top" %}checked{% endif %}> Add to top</label>
       </div>
       {% endif %}
 
       <div class="buttons">
         <button type="submit" class="primary">Save</button>
+        <button type="submit" name="then" value="new" title="Save, then add another with the same designer and book">Save and new</button>
+        {% if m %}<a href="/models/new?{{ urlencode({'designer': m.designer, 'book': m.book_path or ''}) }}" class="button"
+                     title="Add another model with the same designer and book">New from this</a>{% endif %}
         <a href="/" class="button">Cancel</a>
       </div>
     </div>

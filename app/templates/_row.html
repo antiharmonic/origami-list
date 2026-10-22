@@ -41,5 +41,7 @@
       {% endfor %}
     </select>
     <a href="/models/{{ m.id }}/edit">Edit</a>
+    <a href="/models/new?{{ urlencode({'designer': m.designer, 'book': m.book_path or ''}) }}"
+       title="Add another model with the same designer and book">New from</a>
   </div>
 </li>
