@@ -14,5 +14,9 @@
 - [ ] Library: editor field and structured tags (designers/notes are free text for now)
 - [ ] Library: overall complexity per book
 - [ ] Library: show `books` rows whose file has moved or been renamed (path no longer in the scan), and let them be re-linked
+- [ ] External integration with Gilad's Origami Database (giladorigami.com):
+  - links from designers/authors and books to their Gilad pages
+  - a search bar that jumps straight to Gilad's model search
+  - design it alongside our own search needs (one box that searches our models/library and offers "search Gilad" as an option?)
 - [ ] Answer `HEAD` requests on `/books/...` (currently 405; GET with ranges works)
 - [ ] Decide on the complexity scale (currently 1–5)
