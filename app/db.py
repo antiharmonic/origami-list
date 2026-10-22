@@ -88,6 +88,11 @@ def list_books(conn):
     ).fetchall()
 
 
+def set_book_offset(conn, book_id, page_offset):
+    with conn:
+        conn.execute("UPDATE books SET page_offset = ? WHERE id = ?", (page_offset, book_id))
+
+
 def update_book(conn, book_id, title, page_offset):
     with conn:
         conn.execute("UPDATE books SET title = ?, page_offset = ? WHERE id = ?", (title, page_offset, book_id))

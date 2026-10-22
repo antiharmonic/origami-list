@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -89,8 +89,11 @@ def _form_page(request, model=None, prefill=None):
 
 
 @app.get("/models/new", response_class=HTMLResponse)
-def new_model(request: Request):
-    return _form_page(request, prefill=dict(request.query_params))
+def new_model(request: Request, conn=Depends(get_conn)):
+    prefill = dict(request.query_params)
+    book = db.get_book_by_path(conn, prefill.get("book", ""))
+    prefill["offset"] = book["page_offset"] if book else 0
+    return _form_page(request, prefill=prefill)
 
 
 @app.get("/add", response_class=HTMLResponse)
@@ -144,9 +147,14 @@ async def _fields_from_form(request: Request, conn):
         if not books.resolve(book_path):
             raise HTTPException(400, f"book not found: {book_path}")
         fields["book_id"] = db.get_or_create_book(conn, book_path)
+        offset = _opt_int(form.get("offset"))
+        if offset is not None:
+            db.set_book_offset(conn, fields["book_id"], offset)
+        else:
+            offset = db.get_book(conn, fields["book_id"])["page_offset"]
         page = _opt_int(form.get("page"))
         if page is not None and form.get("printed"):
-            page += db.get_book(conn, fields["book_id"])["page_offset"]
+            page += offset
         fields["page"] = page
     return form, fields
 
@@ -212,16 +220,21 @@ def rescan():
 
 
 @app.get("/api/preview", response_class=HTMLResponse)
-def preview(request: Request, book: str = "", page: str = "", printed: str = "", conn=Depends(get_conn)):
+def preview(request: Request, book: str = "", page: str = "", printed: str = "", offset: str = ""):
     pdf_page = _opt_int(page)
-    existing = db.get_book_by_path(conn, book) if book else None
-    offset = existing["page_offset"] if existing else 0
+    offset = _opt_int(offset) or 0
     if pdf_page is not None and printed:
         pdf_page += offset
     ok = bool(book and books.resolve(book) and pdf_page and pdf_page > 0)
     return templates.TemplateResponse(request, "_preview.html", {
         "book": book, "page": pdf_page, "ok": ok, "offset": offset, "printed": bool(printed),
     })
+
+
+@app.get("/api/book-offset", response_class=PlainTextResponse)
+def book_offset(book: str = "", conn=Depends(get_conn)):
+    existing = db.get_book_by_path(conn, book) if book else None
+    return str(existing["page_offset"] if existing else 0)
 
 
 @app.get("/books/{path:path}")

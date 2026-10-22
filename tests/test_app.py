@@ -1,3 +1,4 @@
+import re
 import shutil
 
 import pytest
@@ -129,3 +130,23 @@ def test_save_and_new_carries_designer_and_book(client, conn):
     r = client.post("/models", data={"name": "Ant"}, follow_redirects=False)
     assert r.headers["location"] == "/"
     assert "New from" in client.get("/").text
+
+
+def test_offset_on_form_is_saved_to_book(client, conn):
+    book = "sub/Kato - Nature Study.pdf"
+    assert client.get("/api/book-offset", params={"book": book}).text == "0"
+    client.post("/models", data={"name": "Frog", "book": book, "page": "1", "printed": "1", "offset": "1"})
+    m = db.list_models(conn)[0]
+    assert m["page"] == 2 and m["book_offset"] == 1
+    assert client.get("/api/book-offset", params={"book": book}).text == "1"
+
+    # The next form for this book starts with the saved offset.
+    form = client.get("/models/new", params={"book": book}).text
+    assert re.search(r'name="offset"[^>]*value="1"', form)
+    assert re.search(r'name="printed"[^>]*checked', form)
+    # Books without an offset, and edits (page is already a PDF page), start unticked.
+    assert not re.search(r'name="printed"[^>]*checked', client.get("/models/new").text)
+    assert not re.search(r'name="printed"[^>]*checked', client.get(f"/models/{m['id']}/edit").text)
+
+    r = client.get("/api/preview", params={"book": book, "page": "1", "printed": "1", "offset": "1"})
+    assert "PDF page 2" in r.text

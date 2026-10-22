@@ -123,6 +123,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
 .model-form label.check { flex-direction: row; align-items: center; gap: .4rem; }
 .model-form .row { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; }
 .model-form .page input { width: 7rem; }
+.model-form .offset input { width: 5rem; }
 .preview-col { flex: 0 1 420px !important; }
 #preview img { width: 100%; max-width: 400px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
 .results { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; margin-top: -.5rem; }

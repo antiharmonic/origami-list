@@ -19,9 +19,14 @@
 
       <div class="row">
         <label class="page">Page <input id="page" name="page" type="number" min="1" value="{{ v.page or '' }}"></label>
-        <label class="check"><input type="checkbox" id="printed" name="printed" value="1">
-          Printed page number (add the book's page offset)</label>
+        <label class="check"><input type="checkbox" id="printed" name="printed" value="1"
+                                    {% if not m and prefill.offset %}checked{% endif %}>
+          Printed page number</label>
+        <label class="offset" title="PDF page minus printed page. Saved to the book, so you only set it once.">
+          Book offset <input id="offset" name="offset" type="number"
+                             value="{{ m.book_offset if m and m.book_path else prefill.offset or 0 }}"></label>
       </div>
+      <p class="hint">Book offset = PDF page − printed page (e.g. printed p.24 is PDF page 30 → 6). Saved with the book.</p>
 
       <label>Web link <input name="url" type="url" placeholder="https://…" value="{{ v.url or '' }}"></label>
 
@@ -70,8 +75,9 @@
     </div>
 
     <div class="col preview-col">
-      <div id="preview" hx-get="/api/preview" hx-include="#book, #page, #printed"
-           hx-trigger="load, change from:#book, input changed delay:400ms from:#page, change from:#printed">
+      <div id="preview" hx-get="/api/preview" hx-include="#book, #page, #printed, #offset"
+           hx-trigger="load, book-offset-loaded from:body, input changed delay:400ms from:#page,
+                       input changed delay:400ms from:#offset, change from:#printed">
       </div>
     </div>
   </div>
@@ -96,6 +102,20 @@
     this.innerHTML = "";
     book.dispatchEvent(new Event("change", { bubbles: true }));
     document.getElementById("page").focus();
+  });
+
+  // A different book means a different offset: load the saved one, then refresh the preview.
+  // New models default to printed page numbers when the book has an offset; an edited
+  // model's page is already a PDF page, so the checkbox is left alone there.
+  var isNew = {{ "false" if m else "true" }};
+  document.getElementById("book").addEventListener("change", function () {
+    fetch("/api/book-offset?" + new URLSearchParams({ book: this.value }))
+      .then(function (r) { return r.text(); })
+      .then(function (offset) {
+        document.getElementById("offset").value = offset;
+        if (isNew) document.getElementById("printed").checked = Number(offset) !== 0;
+        htmx.trigger(document.body, "book-offset-loaded");
+      });
   });
 </script>
 {% endblock %}
