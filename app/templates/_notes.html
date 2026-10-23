@@ -1,0 +1,18 @@
+<div id="notes-backdrop" class="notes-backdrop" hidden></div>
+<aside id="notes-panel" class="notes-panel" hidden aria-label="Notes">
+  <div class="notes-head">
+    <strong>Notes</strong>
+    <div class="notes-tabs" role="tablist">
+      <button type="button" data-mode="edit" class="active">Edit</button>
+      <button type="button" data-mode="preview">Preview</button>
+    </div>
+    <button type="button" class="notes-close" title="Close (Esc)" aria-label="Close">×</button>
+  </div>
+  <textarea id="notes-text" spellcheck="true" placeholder="Ideas, models to hunt for, designers to dig into…"></textarea>
+  <div id="notes-preview" class="notes-preview" hidden></div>
+  <div class="notes-foot">
+    <span id="notes-status" class="hint"></span>
+    <span class="hint notes-help"><code>- bullet</code> <code>**bold**</code> <code>*italic*</code> <code># heading</code></span>
+  </div>
+</aside>
+<script src="/static/notes.js"></script>

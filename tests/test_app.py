@@ -245,3 +245,21 @@ def test_added_date_is_frozen_and_drives_recent_sort(client, conn):
     assert "Added 1970-01-1" in page  # 1,000,000s after the epoch, local time
     page = client.get("/library", params={"filtered": 1, "status": db.BOOK_STATUSES, "sort": "title"}).text
     assert page.index("Kato - Nature Study") < page.index("Lang - Origami Insects")
+
+
+def test_notes_save_conflict_and_render(client):
+    assert client.get("/notes").json() == {"body": "", "rev": 0}
+    assert client.post("/notes", data={"body": "- octopus", "rev": 0}).json() == {"rev": 1}
+    assert client.get("/notes").json() == {"body": "- octopus", "rev": 1}
+
+    # A window still on rev 0 can't overwrite, unless it forces.
+    r = client.post("/notes", data={"body": "stale", "rev": 0})
+    assert r.status_code == 409 and r.json()["rev"] == 1
+    assert client.get("/notes").json()["body"] == "- octopus"
+    assert client.post("/notes", data={"body": "mine", "rev": 0, "force": "true"}).json() == {"rev": 2}
+
+    html = client.post("/notes/preview", data={"body": "- **Komatsu**\n- <script>x</script>"}).text
+    assert "<li><strong>Komatsu</strong></li>" in html and "<script>" not in html and "&lt;script&gt;" in html
+
+    for page in ("/", "/library"):
+        assert 'id="notes-panel"' in client.get(page).text

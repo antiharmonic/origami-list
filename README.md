@@ -11,6 +11,9 @@ docker compose logs -f
 ```
 `restart: unless-stopped` plus the enabled `docker.service` brings it back on every boot.
 
+## Notes
+The **Notes** button in the top nav (or Alt+N) opens a scratchpad that's the same on every page, for ideas like "find a good octopus model". It's Markdown (`- bullets`, `**bold**`, `# headings`), autosaves as you type, and Enter continues a list, Tab indents, and Ctrl+B / Ctrl+I bold and italicise.
+
 ## Data
 Everything lives in `./data/`: `origami.db` (SQLite), `thumbs/` (a cache, safe to delete) and `photos/`. Back it up by copying that folder, or use **Books & import → Export CSV**.
 

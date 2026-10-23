@@ -51,6 +51,15 @@ MIGRATIONS = [
         added_at REAL NOT NULL
     );
     """,
+    """
+    CREATE TABLE notes (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        body TEXT NOT NULL DEFAULT '',
+        rev INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT
+    );
+    INSERT INTO notes (id) VALUES (1);
+    """,
 ]
 
 # Below this gap between neighbours, positions are renumbered 1..N.
@@ -229,3 +238,22 @@ def move_model(conn, model_id, prev_id=None, next_id=None):
         with conn:
             conn.execute("UPDATE models SET position = ?, updated_at = ? WHERE id = ?", (pos, _now(), model_id))
         return
+
+
+# --- notes (a single global document) ---
+
+def get_notes(conn):
+    return conn.execute("SELECT body, rev, updated_at FROM notes WHERE id = 1").fetchone()
+
+
+def save_notes(conn, body, rev=None):
+    """Save and return the new rev, or None if rev is given and another save got there first."""
+    sql = "UPDATE notes SET body = ?, rev = rev + 1, updated_at = ? WHERE id = 1"
+    params = [body, _now()]
+    if rev is not None:
+        sql += " AND rev = ?"
+        params.append(rev)
+    with conn:
+        if conn.execute(sql, params).rowcount == 0:
+            return None
+    return get_notes(conn)["rev"]

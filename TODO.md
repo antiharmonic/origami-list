@@ -19,4 +19,5 @@
   - a search bar that jumps straight to Gilad's model search
   - design it alongside our own search needs (one box that searches our models/library and offers "search Gilad" as an option?)
 - [ ] Answer `HEAD` requests on `/books/...` (currently 405; GET with ranges works)
+- [ ] Notes: linkify bare URLs (needs `linkify-it-py`)
 - [ ] Decide on the complexity scale (currently 1–5)

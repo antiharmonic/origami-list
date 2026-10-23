@@ -18,11 +18,13 @@
       <a href="/models/new" class="button primary">+ Add model</a>
       <a href="/library">Library</a>
       <a href="/books-admin">Import / export</a>
+      <button type="button" id="notes-toggle" title="Notes (Alt+N)" aria-controls="notes-panel">Notes</button>
     </nav>
   </header>
   <main>
     {% block content %}{% endblock %}
   </main>
+  {% include "_notes.html" %}
   <script>
     // Drag-to-reorder on the main list (only when sorted by "my order").
     htmx.onLoad(function (root) {

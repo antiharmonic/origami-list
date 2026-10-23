@@ -6,9 +6,10 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markdown_it import MarkdownIt
 
 from . import books, config, db, import_csv, thumbs
 
@@ -16,6 +17,8 @@ APP_DIR = Path(__file__).parent
 PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 DEFAULT_STATUSES = ["want", "attempted"]
 LIBRARY_DEFAULT_STATUSES = ["unexplored", "browsing"]
+# Notes markdown: raw HTML is escaped, and a single newline is a line break.
+MARKDOWN = MarkdownIt("commonmark", {"html": False, "breaks": True}).enable(["table", "strikethrough"])
 
 
 @asynccontextmanager
@@ -420,3 +423,24 @@ def export(conn=Depends(get_conn)):
                     m["url"] or "", m["complexity"] or "", m["paper"], m["status"], m["notes"]])
     return Response(out.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="origami-list.csv"'})
+
+
+# --- notes ---
+
+@app.get("/notes")
+def notes(conn=Depends(get_conn)):
+    row = db.get_notes(conn)
+    return {"body": row["body"], "rev": row["rev"]}
+
+
+@app.post("/notes")
+def save_notes(body: str = Form(""), rev: int | None = Form(None), force: bool = Form(False), conn=Depends(get_conn)):
+    new_rev = db.save_notes(conn, body, None if force else rev)
+    if new_rev is None:
+        return JSONResponse({"conflict": True, "rev": db.get_notes(conn)["rev"]}, status_code=409)
+    return {"rev": new_rev}
+
+
+@app.post("/notes/preview", response_class=HTMLResponse)
+def notes_preview(body: str = Form("")):
+    return MARKDOWN.render(body)

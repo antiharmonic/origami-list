@@ -30,6 +30,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   background: var(--bg);
@@ -202,6 +203,34 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
 .book-models .page-no { color: var(--muted); min-width: 3.5rem; font-variant-numeric: tabular-nums; }
 .book-details { display: flex; flex-direction: column; gap: .8rem; max-width: 560px; }
 .book-details input[type=number] { width: 7rem; }
+
+/* notes panel */
+.notes-backdrop { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .2); }
+.notes-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 31; width: min(440px, 100vw);
+  display: flex; flex-direction: column; gap: .6rem; padding: .9rem;
+  background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 18px rgb(0 0 0 / .15);
+}
+.notes-head { display: flex; align-items: center; gap: .8rem; }
+.notes-tabs { display: flex; margin-right: auto; }
+.notes-tabs button { border-radius: 0; padding: .2rem .7rem; font-size: .9rem; color: var(--muted); }
+.notes-tabs button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.notes-tabs button:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: none; }
+.notes-tabs button.active { color: var(--text); background: var(--bg); }
+.notes-close { border: none; background: none; font-size: 1.4rem; line-height: 1; padding: 0 .3rem; color: var(--muted); }
+#notes-text {
+  flex: 1; resize: none; font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; tab-size: 2;
+}
+.notes-preview {
+  flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: .2rem .8rem;
+}
+.notes-preview h1, .notes-preview h2, .notes-preview h3 { font-size: 1.05rem; margin: .8rem 0 .3rem; }
+.notes-preview ul, .notes-preview ol { padding-left: 1.3rem; margin: .4rem 0; }
+.notes-preview p { margin: .4rem 0; }
+.notes-foot { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .8rem; }
+.notes-foot .hint { font-size: .8rem; }
+.notes-foot button { font-size: .8rem; padding: .1rem .4rem; }
+.notes-help code { margin-left: .3rem; }
 
 @media (max-width: 640px) {
   main { padding: .75rem; }
