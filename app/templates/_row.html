@@ -1,4 +1,7 @@
-{% if m.book_path %}
+{% set missing = book_missing(m.book_path) %}
+{% if missing %}
+  {% set href = m.url %}
+{% elif m.book_path %}
   {% set href = "/books/" ~ (m.book_path | urlpath) ~ "#page=" ~ (m.page or 1) %}
 {% else %}
   {% set href = m.url %}
@@ -6,7 +9,9 @@
 <li class="model status-{{ m.status }}" data-id="{{ m.id }}">
   <span class="handle" title="Drag to reorder" aria-hidden="true">⠿</span>
   <a class="thumb" {% if href %}href="{{ href }}" target="_blank" rel="noopener"{% endif %}>
-    {% if m.book_path and m.page %}
+    {% if missing %}
+      <span class="nothumb">file missing</span>
+    {% elif m.book_path and m.page %}
       <img loading="lazy" src="/thumb?{{ urlencode({'book': m.book_path, 'page': m.page}) }}" alt="">
     {% else %}
       <span class="nothumb">{{ "web" if m.url else "no page" }}</span>
@@ -23,7 +28,7 @@
       {% if m.designer %}<span class="designer">{{ m.designer }}</span>{% endif %}
     </div>
     <div class="meta">
-      {% if m.book_title %}<span><a class="book-link" href="/library/book?{{ urlencode({'path': m.book_path}) }}">{{ m.book_title }}</a>{% if m.page %} · p.{{ m.page }}{% endif %}</span>{% endif %}
+      {% if m.book_title %}<span><a class="book-link" href="/library/book?{{ urlencode({'path': m.book_path}) }}">{{ m.book_title }}</a>{% if m.page %} · p.{{ m.page }}{% endif %}{% if missing %} <a class="badge danger-badge" href="/library/book?{{ urlencode({'path': m.book_path}) }}">file missing</a>{% endif %}</span>{% endif %}
       {% if m.url and m.book_path %}<a href="{{ m.url }}" target="_blank" rel="noopener">web link</a>{% endif %}
       {% if m.url and not m.book_path %}<span class="url">{{ m.url }}</span>{% endif %}
       {% if m.complexity %}

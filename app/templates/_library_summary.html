@@ -1,3 +1,4 @@
 <p id="library-summary" class="hint"{% if oob %} hx-swap-oob="true"{% endif %}>
   {%- for s in BOOK_STATUSES %}{{ summary[s] }} {{ BOOK_STATUS_LABELS[s] | lower }}{% if not loop.last %} · {% endif %}{% endfor -%}
+  {%- if summary.hidden %} · {{ summary.hidden }} hidden{% endif -%}
 </p>

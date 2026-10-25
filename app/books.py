@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 from . import config
 
 SCAN_TTL = 300
-_cache = {"at": 0.0, "files": [], "ctimes": {}}
+_cache = {"at": 0.0, "files": [], "set": frozenset(), "ctimes": {}}
 
 # Download-site tags and similar noise that shows up in filenames.
 _JUNK = re.compile(r"\s*\((?:[^)]*z-lib[^)]*|[^)]*1lib[^)]*)\)", re.IGNORECASE)
@@ -20,8 +20,14 @@ def scan(force=False):
             for p in root.rglob("*"):
                 if p.suffix.lower() == ".pdf" and "__MACOSX" not in p.parts and p.is_file():
                     ctimes[p.relative_to(root).as_posix()] = p.stat().st_ctime
-        _cache.update(at=time.monotonic(), files=sorted(ctimes, key=str.lower), ctimes=ctimes)
+        _cache.update(at=time.monotonic(), files=sorted(ctimes, key=str.lower), set=frozenset(ctimes), ctimes=ctimes)
     return _cache["files"]
+
+
+def exists(rel):
+    """Whether the last scan saw this path (no disk access, so it's cheap per list row)."""
+    scan()
+    return rel in _cache["set"]
 
 
 def ctimes():

@@ -47,9 +47,29 @@ def todo_count():
         conn.close()
 
 
+def books_warning():
+    """A banner message when the books folder looks empty or unmounted, else None."""
+    files = books.scan()
+    conn = db.connect()
+    try:
+        known = conn.execute("SELECT COUNT(*) FROM book_files").fetchone()[0]
+        paths = [r[0] for r in conn.execute("SELECT path FROM books")]
+    finally:
+        conn.close()
+    if not files and known:
+        return ("The books folder looks empty. Is it mounted? Nothing has been deleted: "
+                "books and models reconnect when the files are back.")
+    missing = sum(not books.exists(p) for p in paths)
+    if missing >= 3 and missing * 2 > len(paths):
+        return (f"{missing} of {len(paths)} books you've used are missing from the books folder. "
+                "Is it mounted? Nothing has been deleted.")
+    return None
+
+
 templates.env.globals.update(STATUSES=db.STATUSES, STATUS_LABELS=db.STATUS_LABELS, urlencode=urlencode,
                              todo_count=todo_count, BOOK_STATUSES=db.BOOK_STATUSES,
-                             BOOK_STATUS_LABELS=db.BOOK_STATUS_LABELS)
+                             BOOK_STATUS_LABELS=db.BOOK_STATUS_LABELS, books_warning=books_warning,
+                             book_missing=lambda path: bool(path) and not books.exists(path))
 
 
 def get_conn():
@@ -232,8 +252,10 @@ def delete_model(model_id: int, conn=Depends(get_conn)):
 # --- books, thumbnails, photos ---
 
 @app.get("/api/books", response_class=HTMLResponse)
-def book_search(request: Request, book: str = ""):
-    return templates.TemplateResponse(request, "_book_results.html", {"results": books.search(book)})
+def book_search(request: Request, book: str = "", conn=Depends(get_conn)):
+    hidden = db.hidden_paths(conn)
+    results = [p for p in books.search(book, limit=50) if p not in hidden][:25]
+    return templates.TemplateResponse(request, "_book_results.html", {"results": results})
 
 
 @app.post("/api/rescan")
@@ -309,6 +331,9 @@ def _library_entry(path, row, added_at=0):
         "folder": books.folder(path),
         "title": row["title"] if row else books.clean_title(path),
         "status": row["status"] if row else "unexplored",
+        "starred": bool(row["starred"]) if row else False,
+        "hidden": bool(row["hidden"]) if row else False,
+        "missing": False,
         "model_count": row["model_count"] if row else 0,
         "designers": row["designers"] if row else "",
         "notes": row["notes"] if row else "",
@@ -320,16 +345,19 @@ def _library_entry(path, row, added_at=0):
 
 
 def _book_entry_or_404(conn, path):
-    if not books.resolve(path):
+    """A scanned file, or a known book whose file has gone missing (so it can be relinked)."""
+    row = db.library_rows(conn, path).get(path)
+    present = books.resolve(path) is not None
+    if not present and not row:
         raise HTTPException(404)
     added = db.record_added(conn, books.ctimes())
-    return _library_entry(path, db.library_rows(conn, path).get(path), added.get(path, 0))
+    return {**_library_entry(path, row, added.get(path, 0)), "missing": not present}
 
 
 def _library_summary(entries):
-    counts = {s: 0 for s in db.BOOK_STATUSES}
+    counts = {s: 0 for s in db.BOOK_STATUSES} | {"hidden": 0}
     for b in entries:
-        counts[b["status"]] += 1
+        counts["hidden" if b["hidden"] else b["status"]] += 1
     return counts
 
 
@@ -341,6 +369,8 @@ def library(request: Request, conn=Depends(get_conn)):
         statuses = LIBRARY_DEFAULT_STATUSES
     q = params.get("q", "")
     has_models = bool(params.get("has_models"))
+    starred = bool(params.get("starred"))
+    show_hidden = bool(params.get("hidden"))
     sort = params.get("sort", "recent")
     if sort not in LIBRARY_SORTS:
         sort = "recent"
@@ -348,17 +378,23 @@ def library(request: Request, conn=Depends(get_conn)):
     rows = db.library_rows(conn)
     added = db.record_added(conn, books.ctimes())
     entries = [_library_entry(path, rows.get(path), added.get(path, 0)) for path in books.scan()]
+    universe = [b for b in entries if show_hidden or not b["hidden"]]
     terms = q.lower().split()
     shown = [
-        b for b in entries
+        b for b in universe
         if b["status"] in statuses
         and (not has_models or b["model_count"])
+        and (not starred or b["starred"])
         and all(t in f"{b['title']} {b['path']} {b['designers']} {b['notes']}".lower() for t in terms)
     ]
     shown.sort(key=LIBRARY_SORTS[sort])
+    # Known books whose file is gone (renamed, moved, deleted); not listed while the whole folder looks gone.
+    missing = [] if books_warning() else sorted(
+        (r for p, r in rows.items() if not books.exists(p)), key=lambda r: r["title"].lower())
     return templates.TemplateResponse(request, "library.html", {
-        "entries": shown, "total": len(entries), "summary": _library_summary(entries),
-        "statuses": statuses, "q": q, "has_models": has_models, "sort": sort,
+        "entries": shown, "total": len(universe), "summary": _library_summary(entries), "missing": missing,
+        "statuses": statuses, "q": q, "has_models": has_models, "starred": starred, "show_hidden": show_hidden,
+        "sort": sort,
     })
 
 
@@ -379,12 +415,43 @@ def library_status(path: str = Form(...), status: str = Form(...), back: str = F
     return HTMLResponse(card + summary)
 
 
+@app.post("/library/star", response_class=HTMLResponse)
+def library_star(path: str = Form(...), starred: bool = Form(...), conn=Depends(get_conn)):
+    b = _book_entry_or_404(conn, path)
+    db.update_book_meta(conn, db.get_or_create_book(conn, path), {"starred": int(starred)})
+    return templates.get_template("_star.html").render(b={**b, "starred": starred})
+
+
+@app.post("/library/hide")
+def library_hide(path: str = Form(...), hidden: bool = Form(...), conn=Depends(get_conn)):
+    _book_entry_or_404(conn, path)
+    db.update_book_meta(conn, db.get_or_create_book(conn, path), {"hidden": int(hidden)})
+    return _redirect("/library/book?" + urlencode({"path": path}))
+
+
+@app.post("/library/relink")
+def library_relink(path: str = Form(...), book: str = Form(...), shift: str = Form("0"),
+                   hide_old: bool = Form(False), conn=Depends(get_conn)):
+    """Move a book row (and its models) to another file; `book` is the new file's path."""
+    row = db.get_book_by_path(conn, path)
+    if not row:
+        raise HTTPException(404)
+    book = book.strip()
+    if book == path or not books.resolve(book):
+        raise HTTPException(400, f"pick a different file that exists: {book}")
+    db.relink_book(conn, row["id"], book, _opt_int(shift) or 0)
+    if hide_old and books.resolve(path):
+        db.update_book_meta(conn, db.get_or_create_book(conn, path), {"hidden": 1})
+    return _redirect("/library/book?" + urlencode({"path": book, "relinked": 1}))
+
+
 @app.get("/library/book", response_class=HTMLResponse)
 def library_book(request: Request, path: str, conn=Depends(get_conn)):
     b = _book_entry_or_404(conn, path)
     models = db.list_models(conn, book_id=b["id"], sort="book") if b["id"] else []
     return templates.TemplateResponse(request, "book.html", {
         "b": b, "models": models, "saved": bool(request.query_params.get("saved")),
+        "relinked": bool(request.query_params.get("relinked")),
     })
 
 

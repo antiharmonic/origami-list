@@ -15,6 +15,12 @@
     <label class="chip">
       <input type="checkbox" name="has_models" value="1" {% if has_models %}checked{% endif %}> Has models
     </label>
+    <label class="chip">
+      <input type="checkbox" name="starred" value="1" {% if starred %}checked{% endif %}> ★ Starred
+    </label>
+    <label class="chip">
+      <input type="checkbox" name="hidden" value="1" {% if show_hidden %}checked{% endif %}> Show hidden
+    </label>
   </div>
   <label class="sort">Sort
     <select name="sort">
@@ -27,6 +33,21 @@
   <span id="library-count" class="view-count">Showing {{ entries | length }} of {{ total }}</span>
 </form>
 {% include "_library_summary.html" %}
+
+{% if missing %}
+<details class="panel missing-books" open>
+  <summary><strong>Missing files ({{ missing | length }})</strong>
+    <span class="hint">: books you've used whose file was renamed, moved or deleted. Open one to relink it.</span></summary>
+  <ul>
+    {% for r in missing %}
+    <li>
+      <a href="/library/book?{{ urlencode({'path': r.path}) }}">{{ r.title }}</a>
+      <span class="hint">{{ r.path }}{% if r.model_count %} · {{ r.model_count }} model{{ "" if r.model_count == 1 else "s" }}{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
 
 <div id="library" class="book-grid">
   {% for b in entries %}

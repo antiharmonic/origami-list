@@ -4,6 +4,7 @@ import shutil
 import pytest
 
 from app import books, db, import_csv
+from tests.conftest import make_pdf
 
 ORIGINAL_CSV = """model,author,complexity,suggested_paper,book,file,page,folded,notes
 Simple Dragonfly,Shuki Kato,3,foil,Origami Nature Study,'/home/someone/Books/Kato - Nature Study.pdf,24,Yes,Nice.
@@ -263,3 +264,96 @@ def test_notes_save_conflict_and_render(client):
 
     for page in ("/", "/library"):
         assert 'id="notes-panel"' in client.get(page).text
+
+
+def test_star_books_and_filter(client, conn):
+    r = client.post("/library/star", data={"path": NATURE, "starred": "1"})
+    assert 'class="star on"' in r.text and "★" in r.text
+    book = db.get_book_by_path(conn, NATURE)
+    assert (book["starred"], book["status"]) == (1, "unexplored")  # starring isn't triage
+
+    all_statuses = {"filtered": 1, "status": db.BOOK_STATUSES}
+    page = client.get("/library", params={**all_statuses, "starred": 1}).text
+    assert "Showing 1 of 2" in page and "Kato - Nature Study" in page
+    assert 'class="star on"' in client.get("/library/book", params={"path": NATURE}).text
+
+    assert 'class="star"' in client.post("/library/star", data={"path": NATURE, "starred": "0"}).text
+    assert "Showing 0 of 2" in client.get("/library", params={**all_statuses, "starred": 1}).text
+    assert client.post("/library/star", data={"path": "../secret.pdf", "starred": "1"}).status_code == 404
+
+
+HQ = "Lang - Insects HQ.pdf"
+
+
+def test_relink_to_new_file_shifts_pages_and_hides_old(client, conn, dirs):
+    make_pdf(dirs[0] / HQ)
+    books.scan(force=True)
+    client.post("/models", data={"name": "Mantis", "book": INSECTS, "page": "2", "offset": "4"})
+    client.post("/models", data={"name": "Cicada", "book": INSECTS, "page": "1"})
+    old_id = db.get_book_by_path(conn, INSECTS)["id"]
+
+    r = client.post("/library/relink", data={"path": INSECTS, "book": HQ, "shift": "-1", "hide_old": "1"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "relinked=1" in r.headers["location"]
+    book = db.get_book(conn, old_id)
+    assert (book["path"], book["title"], book["page_offset"]) == (HQ, "Lang - Insects HQ", 3)
+    assert sorted(m["page"] for m in db.list_models(conn)) == [1, 1]  # 2-1, and 1-1 clamped to 1
+
+    # The old scan is hidden: out of the library and book search unless asked for.
+    assert db.get_book_by_path(conn, INSECTS)["hidden"] == 1
+    assert "Lang - Origami Insects" not in client.get("/library").text
+    assert "1 hidden" in client.get("/library").text
+    assert "Lang - Origami Insects" in client.get("/library", params={"hidden": 1}).text
+    assert INSECTS not in client.get("/api/books", params={"book": "lang"}).text
+    assert HQ in client.get("/api/books", params={"book": "lang"}).text
+    assert "file missing" not in client.get("/").text
+
+
+def test_relink_merges_into_existing_row(client, conn, dirs):
+    make_pdf(dirs[0] / HQ)
+    books.scan(force=True)
+    client.post("/models", data={"name": "Mantis", "book": INSECTS, "page": "5"})
+    client.post("/library/book", data={"path": INSECTS, "title": "Insects", "designers": "Robert Lang",
+                                       "notes": "", "page_offset": "2", "cover_page": "1"})
+    client.post("/library/star", data={"path": INSECTS, "starred": "1"})
+    client.post("/library/status", data={"path": HQ, "status": "explored"})
+    hq_id = db.get_book_by_path(conn, HQ)["id"]
+
+    client.post("/library/relink", data={"path": INSECTS, "book": HQ, "shift": "2"})
+    hq = db.get_book(conn, hq_id)
+    assert (hq["designers"], hq["starred"], hq["status"], hq["page_offset"]) == ("Robert Lang", 1, "explored", 4)
+    (m,) = db.list_models(conn)
+    assert (m["book_id"], m["page"]) == (hq_id, 7)
+    assert db.get_book_by_path(conn, INSECTS) is None  # merged away, and not hidden (no hide_old)
+
+
+def test_relink_rejects_bad_targets(client):
+    client.post("/library/star", data={"path": INSECTS, "starred": "1"})
+    for target in ("../secret.pdf", "nope.pdf", INSECTS):
+        assert client.post("/library/relink", data={"path": INSECTS, "book": target}).status_code == 400
+    assert client.post("/library/relink", data={"path": "unknown.pdf", "book": NATURE}).status_code == 404
+
+
+def test_missing_file_is_flagged_and_relinkable(client, conn, dirs):
+    client.post("/models", data={"name": "Dragonfly", "book": NATURE, "page": "2"})
+    (dirs[0] / NATURE).unlink()
+    books.scan(force=True)
+
+    assert "file missing" in client.get("/").text
+    library = client.get("/library").text
+    assert "Missing files (1)" in library and "looks empty" not in library
+    page = client.get("/library/book", params={"path": NATURE})
+    assert page.status_code == 200 and "File missing" in page.text and "Relink to another file" in page.text
+    assert client.get("/library/book", params={"path": "never-seen.pdf"}).status_code == 404
+
+
+def test_empty_books_folder_warns(client, dirs):
+    client.get("/library")  # records the files as seen
+    backup = dirs[0].with_name("books-away")
+    dirs[0].rename(backup)
+    books.scan(force=True)
+    page = client.get("/").text
+    assert "looks empty" in page and "Missing files" not in client.get("/library").text
+    backup.rename(dirs[0])
+    books.scan(force=True)
+    assert "looks empty" not in client.get("/").text

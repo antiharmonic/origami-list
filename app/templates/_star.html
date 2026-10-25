@@ -1,0 +1,3 @@
+<button type="button" class="star{% if b.starred %} on{% endif %}" aria-pressed="{{ 'true' if b.starred else 'false' }}"
+        title="{{ 'Unstar' if b.starred else 'Star' }}" hx-post="/library/star" hx-swap="outerHTML"
+        hx-vals='{{ {"path": b.path, "starred": "0" if b.starred else "1"} | tojson }}'>{{ "★" if b.starred else "☆" }}</button>

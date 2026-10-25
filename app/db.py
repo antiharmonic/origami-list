@@ -8,7 +8,7 @@ STATUSES = ["want", "attempted", "folded", "nailed"]
 STATUS_LABELS = {"want": "Want", "attempted": "Attempted", "folded": "Folded", "nailed": "Nailed it"}
 BOOK_STATUSES = ["unexplored", "browsing", "explored", "skip"]
 BOOK_STATUS_LABELS = {"unexplored": "Unexplored", "browsing": "Browsing", "explored": "Explored", "skip": "Skip"}
-BOOK_FIELDS = ["title", "page_offset", "status", "designers", "notes", "cover_page"]
+BOOK_FIELDS = ["title", "page_offset", "status", "designers", "notes", "cover_page", "starred", "hidden"]
 MODEL_FIELDS = ["name", "designer", "book_id", "page", "url", "complexity", "paper", "status", "notes", "photo"]
 
 # Each entry upgrades the schema by one version (tracked in PRAGMA user_version).
@@ -59,6 +59,12 @@ MIGRATIONS = [
         updated_at TEXT
     );
     INSERT INTO notes (id) VALUES (1);
+    """,
+    """
+    ALTER TABLE books ADD COLUMN starred INTEGER NOT NULL DEFAULT 0;
+    """,
+    """
+    ALTER TABLE books ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
     """,
 ]
 
@@ -131,6 +137,44 @@ def update_book_meta(conn, book_id, fields):
     sets = ", ".join(f"{k} = ?" for k in data)
     with conn:
         conn.execute(f"UPDATE books SET {sets} WHERE id = ?", [*data.values(), book_id])
+
+
+def hidden_paths(conn):
+    return {r[0] for r in conn.execute("SELECT path FROM books WHERE hidden = 1")}
+
+
+def relink_book(conn, book_id, target, shift=0):
+    """Point a book and its models at another file (a rename, or a better scan); returns the target's id.
+
+    `shift` moves every model's page (and the offset) for scans with more/fewer front pages. If the
+    target already has a row, the two are merged into it and this one is deleted.
+    """
+    old = get_book(conn, book_id)
+    existing = get_book_by_path(conn, target)
+    with conn:
+        if shift:
+            conn.execute("UPDATE models SET page = MAX(page + ?, 1) WHERE book_id = ? AND page IS NOT NULL",
+                         (shift, book_id))
+        offset = old["page_offset"] + shift
+        if existing is None:
+            # A title still at its filename-derived default follows the new file.
+            title = clean_title(target) if old["title"] == clean_title(old["path"]) else old["title"]
+            conn.execute("UPDATE books SET path = ?, title = ?, page_offset = ?, hidden = 0 WHERE id = ?",
+                         (target, title, offset, book_id))
+            return book_id
+        conn.execute("UPDATE models SET book_id = ? WHERE book_id = ?", (existing["id"], book_id))
+        conn.execute("""
+            UPDATE books SET
+                designers = CASE WHEN designers = '' THEN ? ELSE designers END,
+                notes = CASE WHEN notes = '' THEN ? ELSE notes END,
+                page_offset = CASE WHEN page_offset = 0 THEN ? ELSE page_offset END,
+                status = CASE WHEN status = 'unexplored' THEN ? ELSE status END,
+                starred = MAX(starred, ?),
+                hidden = 0
+            WHERE id = ?""",
+            (old["designers"], old["notes"], offset, old["status"], old["starred"], existing["id"]))
+        conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
+    return existing["id"]
 
 
 def mark_browsing(conn, book_id):

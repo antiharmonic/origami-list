@@ -21,6 +21,8 @@
       <button type="button" id="notes-toggle" title="Notes (Alt+N)" aria-controls="notes-panel">Notes</button>
     </nav>
   </header>
+  {% set warning = books_warning() %}
+  {% if warning %}<div class="banner-warning" role="alert">{{ warning }}</div>{% endif %}
   <main>
     {% block content %}{% endblock %}
   </main>

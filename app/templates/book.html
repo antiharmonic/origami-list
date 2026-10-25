@@ -5,19 +5,37 @@
 <p><a href="/library">← Library</a></p>
 <div class="book-page">
   <div class="book-cover-col">
-    <a href="{{ pdf }}" target="_blank" rel="noopener">
-      <img src="/thumb?{{ urlencode({'book': b.path, 'page': b.cover_page}) }}" alt="Cover of {{ b.title }}">
-    </a>
+    {% if b.missing %}
+    <div class="missing-cover">
+      <strong>File missing</strong>
+      <span class="hint">It was renamed, moved or deleted. Relink this book to its new file below; its models move with it.</span>
+    </div>
+    {% else %}
+    <div class="cover-wrap">
+      <a href="{{ pdf }}" target="_blank" rel="noopener">
+        <img src="/thumb?{{ urlencode({'book': b.path, 'page': b.cover_page}) }}" alt="Cover of {{ b.title }}">
+      </a>
+      {% include "_star.html" %}
+    </div>
     <div class="buttons stacked">
       <a class="button primary" href="/models/new?{{ urlencode({'book': b.path, 'designer': b.designers if ',' not in b.designers else ''}) }}">+ Add model from this book</a>
       <a class="button" href="{{ pdf }}" target="_blank" rel="noopener">Open PDF</a>
+      <form method="post" action="/library/hide">
+        <input type="hidden" name="path" value="{{ b.path }}">
+        <input type="hidden" name="hidden" value="{{ 0 if b.hidden else 1 }}">
+        <button type="submit" class="button" title="{{ 'Show this book in the library again' if b.hidden else 'Leave the file alone but keep it out of the library and book search' }}">
+          {{ "Unhide" if b.hidden else "Hide from library" }}</button>
+      </form>
     </div>
+    {% endif %}
   </div>
 
   <div class="book-main">
     <h1>{{ b.title }}</h1>
-    <p class="hint">{{ b.path }} · added {{ b.added_at | date }}</p>
+    <p class="hint">{{ b.path }}{% if b.added_at %} · added {{ b.added_at | date }}{% endif %}{% if b.hidden %} · <strong>hidden from the library</strong>{% endif %}</p>
+    {% if relinked %}<p class="flash">Relinked to this file.</p>{% endif %}
 
+    {% if not b.missing %}
     <form method="post" action="/library/status" class="status-buttons">
       <input type="hidden" name="path" value="{{ b.path }}">
       <input type="hidden" name="back" value="book">
@@ -25,6 +43,7 @@
       <button type="submit" name="status" value="{{ s }}" class="{{ 'primary' if s == b.status }}">{{ BOOK_STATUS_LABELS[s] }}</button>
       {% endfor %}
     </form>
+    {% endif %}
 
     <section>
       <h2>Models from this book ({{ models | length }})</h2>
@@ -59,6 +78,75 @@
         <div class="buttons"><button type="submit" class="primary">Save details</button></div>
       </form>
     </section>
+
+    <details class="relink"{% if b.missing %} open{% endif %}>
+      <summary><h2>Relink to another file…</h2></summary>
+      <p class="hint">For a renamed or moved file, or to swap in a better scan. This book's models, status, star and details move to the new file.</p>
+      <form method="post" action="/library/relink" class="model-form book-details">
+        <input type="hidden" name="path" value="{{ b.path }}">
+        <label>New file
+          <input id="relink-book" name="book" autocomplete="off" required placeholder="Type to search your books…"
+                 hx-get="/api/books" hx-trigger="input changed delay:200ms" hx-target="#relink-results"></label>
+        <div id="relink-results" class="results"></div>
+        <label class="shift">Shift page numbers by <input id="relink-shift" name="shift" type="number" value="0"></label>
+        <p class="hint">+2 if the new scan has 2 more pages before the content, −1 if it has one fewer. The book offset shifts too.</p>
+        {% set paged = models | selectattr("page") | list %}
+        {% if paged %}
+        <div class="relink-check">
+          <div class="relink-preview-col">
+            <label>Check against
+              <select id="relink-model">
+                {% for m in paged %}<option value="{{ m.page }}">{{ m.name }} (p.{{ m.page }})</option>{% endfor %}
+              </select>
+            </label>
+            <img id="relink-preview" alt="That page in the new file" hidden>
+          </div>
+          <table class="relink-pages">
+            <thead><tr><th>Model</th><th>Page</th><th>New</th></tr></thead>
+            <tbody>
+              {% for m in paged %}<tr><td>{{ m.name }}</td><td>{{ m.page }}</td><td data-page="{{ m.page }}">{{ m.page }}</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% if not b.missing %}
+        <label class="check"><input type="checkbox" name="hide_old" value="1" checked> Hide this file from the library afterwards</label>
+        {% endif %}
+        <div class="buttons"><button type="submit" class="primary">Relink</button></div>
+      </form>
+    </details>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Relink: pick the new file, then preview where the shifted pages land in it.
+  (function () {
+    var input = document.getElementById("relink-book"), results = document.getElementById("relink-results");
+    var shift = document.getElementById("relink-shift"), model = document.getElementById("relink-model");
+    var img = document.getElementById("relink-preview");
+    function update() {
+      var s = Number(shift.value) || 0;
+      document.querySelectorAll(".relink-pages [data-page]").forEach(function (td) {
+        td.textContent = Math.max(Number(td.dataset.page) + s, 1);
+      });
+      if (!img) return;
+      if (!input.value) { img.hidden = true; return; }
+      img.hidden = false;
+      img.src = "/thumb?" + new URLSearchParams({ book: input.value, page: Math.max(Number(model.value) + s, 1) });
+    }
+    if (img) img.addEventListener("error", function () { img.hidden = true; });
+    results.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-path]");
+      if (!btn) return;
+      input.value = btn.dataset.path;
+      results.innerHTML = "";
+      update();
+    });
+    shift.addEventListener("input", update);
+    input.addEventListener("change", update);
+    if (model) model.addEventListener("change", update);
+  })();
+</script>
 {% endblock %}
