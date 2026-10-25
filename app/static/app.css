@@ -248,6 +248,62 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
 .relink-pages th, .relink-pages td { padding: .2rem .6rem; border-bottom: 1px solid var(--border); text-align: left; }
 .relink-pages td:not(:first-child), .relink-pages th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* studies */
+.study-pill {
+  font-size: .8rem; padding: 0 .5rem; border-radius: 999px; text-decoration: none;
+  border: 1px solid var(--border); color: var(--muted); background: var(--bg);
+}
+.study-pill:hover { color: var(--text); border-color: var(--muted); }
+.bulk-study { margin: -.4rem 0 1rem; color: var(--muted); font-size: .9rem; }
+.bulk-study summary { cursor: pointer; width: fit-content; }
+.bulk-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .5rem; }
+.study-field { display: flex; flex-direction: column; gap: .35rem; }
+.field-label { color: var(--muted); font-size: .9rem; }
+.model-form .chip { flex-direction: row; color: var(--text); font-size: .9rem; }
+.study-field input[name=new_study] { width: 10rem; padding: .25rem .6rem; border-radius: 999px; font-size: .9rem; }
+.progress { display: flex; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.progress .done { background: var(--folded); }
+.progress .attempted { background: var(--attempted); }
+.study-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.study-list li { display: flex; flex-direction: column; gap: .45rem; }
+.study-list-head { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+.study-list-head a { color: var(--text); text-decoration: none; font-size: 1.05rem; }
+.study-list-head a:hover { text-decoration: underline; }
+.study-excerpt { margin: 0; }
+.study-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.study-title { flex: 1 1 320px; display: flex; flex-direction: column; gap: .4rem; }
+.study-title h1, .study-title p { margin: 0; }
+.study-notes { white-space: pre-line; margin: 0 0 1rem; max-width: 70ch; }
+.study-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.study-grid .empty { grid-column: 1 / -1; }
+.study-card {
+  position: relative; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  border-top: 4px solid var(--want);
+}
+.study-card.status-attempted { border-top-color: var(--attempted); }
+.study-card.status-folded { border-top-color: var(--folded); }
+.study-card.status-nailed { border-top-color: var(--nailed); }
+.study-img { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 1; background: var(--bg); }
+.study-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.study-img.diagram img { object-position: top; background: #fff; }
+.study-img.nothumb { color: var(--muted); font-size: .9rem; }
+.photo-tag {
+  position: absolute; left: .4rem; bottom: .4rem; font-size: .7rem; padding: .05rem .45rem;
+  border-radius: 999px; background: rgb(0 0 0 / .55); color: #fff;
+}
+.study-remove { position: absolute; top: .4rem; right: .4rem; }
+.study-remove button {
+  width: 1.8rem; height: 1.8rem; padding: 0; border: none; border-radius: 50%;
+  background: rgb(0 0 0 / .45); color: #fff; font-size: 1.1rem; line-height: 1; opacity: 0;
+}
+.study-card:hover .study-remove button, .study-remove button:focus-visible { opacity: 1; }
+.study-info { padding: .5rem .65rem .65rem; display: flex; flex-direction: column; gap: .2rem; font-size: .92rem; }
+.study-info .designer { margin-left: .2rem; }
+.study-meta { display: flex; gap: .8rem; font-size: .85rem; }
+.study-links { display: flex; gap: .8rem; font-size: .85rem; margin-top: .2rem; }
+.study-details .delete-form { margin-top: 1rem; }
+
 /* notes panel */
 .notes-backdrop { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .2); }
 .notes-panel {

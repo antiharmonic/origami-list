@@ -1,0 +1,36 @@
+{% set missing = book_missing(m.book_path) %}
+{% if m.book_path and not missing %}
+  {% set diagrams = "/books/" ~ (m.book_path | urlpath) ~ "#page=" ~ (m.page or 1) %}
+{% else %}
+  {% set diagrams = m.url %}
+{% endif %}
+<article class="study-card status-{{ m.status }}">
+  {% if m.photo %}
+  <a class="study-img" href="/photos/{{ m.photo }}" target="_blank">
+    <img loading="lazy" src="/photos/{{ m.photo }}" alt="My fold of {{ m.name }}">
+    <span class="photo-tag">your fold</span>
+  </a>
+  {% elif m.book_path and m.page and not missing %}
+  <a class="study-img diagram" href="{{ diagrams }}" target="_blank" rel="noopener">
+    <img loading="lazy" src="/thumb?{{ urlencode({'book': m.book_path, 'page': m.page}) }}" alt="">
+  </a>
+  {% else %}
+  <div class="study-img nothumb">{{ "file missing" if missing else ("web" if m.url else "no page") }}</div>
+  {% endif %}
+  <form method="post" action="/studies/{{ s.id }}/remove" class="study-remove">
+    <input type="hidden" name="model_id" value="{{ m.id }}">
+    <button type="submit" title="Remove from this study (the model stays in your list)" aria-label="Remove from study">×</button>
+  </form>
+  <div class="study-info">
+    <div><strong>{{ m.name }}</strong>{% if m.designer %} <span class="designer">{{ m.designer }}</span>{% endif %}</div>
+    {% if m.book_title %}<span class="hint">{{ m.book_title }}{% if m.page %} · p.{{ m.page }}{% endif %}</span>{% endif %}
+    <div class="study-meta">
+      <span class="status-{{ m.status }}">{{ STATUS_LABELS[m.status] }}</span>
+      {% if m.complexity %}<span class="complexity" title="Complexity {{ m.complexity }}/5">{{ "●" * m.complexity }}{{ "○" * [5 - m.complexity, 0] | max }}</span>{% endif %}
+    </div>
+    <div class="study-links">
+      {% if diagrams %}<a href="{{ diagrams }}" target="_blank" rel="noopener">Diagrams</a>{% endif %}
+      <a href="/models/{{ m.id }}/edit">Edit</a>
+    </div>
+  </div>
+</article>

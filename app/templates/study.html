@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ study.name }} · Studies · Origami List{% endblock %}
+{% block content %}
+{% set s = study %}
+<p><a href="/studies">← Studies</a></p>
+<div class="study-head">
+  <div class="study-title">
+    <h1>{{ s.name }}</h1>
+    <p class="hint">{{ s.done_count }} folded · {{ s.attempted_count }} attempted · {{ s.model_count - s.done_count - s.attempted_count }} to go</p>
+    {% include "_study_progress.html" %}
+  </div>
+  <div class="buttons">
+    <a class="button" href="/?{{ urlencode({'filtered': 1, 'status': STATUSES, 'study': 'in:%d' % s.id}, True) }}">Show in list</a>
+    <a class="button primary" href="/models/new?{{ urlencode({'study': s.id}) }}">+ Add model to this study</a>
+  </div>
+</div>
+{% if s.notes %}<p class="study-notes">{{ s.notes }}</p>{% endif %}
+
+<div class="study-grid">
+  {% for m in models %}
+    {% include "_study_card.html" %}
+  {% else %}
+    <p class="empty">No models yet. Tick this study on a model's form, or search the list and use “Add the shown models to a study”.</p>
+  {% endfor %}
+</div>
+
+<section class="panel study-details">
+  <h2>Details</h2>
+  {% if saved %}<p class="flash">Saved.</p>{% endif %}
+  <form method="post" action="/studies/{{ s.id }}" class="model-form book-details">
+    <label>Name <input name="name" required value="{{ s.name }}"></label>
+    <label>Notes <textarea name="notes" rows="3" placeholder="Why this study? What to compare?">{{ s.notes }}</textarea></label>
+    <div class="buttons"><button type="submit" class="primary">Save</button></div>
+  </form>
+  <form method="post" action="/studies/{{ s.id }}/delete" class="delete-form"
+        onsubmit="return confirm('Delete the study ' + {{ s.name | tojson | forceescape }} + '? Its models stay in your list.')">
+    <button type="submit" class="danger">Delete study</button>
+  </form>
+</section>
+{% endblock %}

@@ -35,6 +35,7 @@
         <span class="complexity" title="Complexity {{ m.complexity }}/5">{{ "●" * m.complexity }}{{ "○" * [5 - m.complexity, 0] | max }}</span>
       {% endif %}
       {% if m.paper %}<span class="paper">{{ m.paper }}</span>{% endif %}
+      {% for sid, sname in m.studies | studies %}<a class="study-pill" href="/studies/{{ sid }}">{{ sname }}</a>{% endfor %}
     </div>
     {% if m.notes %}<p class="notes">{{ m.notes }}</p>{% endif %}
   </div>
@@ -46,7 +47,7 @@
       {% endfor %}
     </select>
     <a href="/models/{{ m.id }}/edit">Edit</a>
-    <a href="/models/new?{{ urlencode({'designer': m.designer, 'book': m.book_path or ''}) }}"
-       title="Add another model with the same designer and book">New from</a>
+    <a href="/models/new?{{ urlencode({'designer': m.designer, 'book': m.book_path or '', 'study': m.studies | studies | map('first') | list}, True) }}"
+       title="Add another model with the same designer, book and studies">New from</a>
   </div>
 </li>

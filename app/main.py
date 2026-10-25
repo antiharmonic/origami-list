@@ -35,6 +35,7 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 templates.env.filters["urlpath"] = lambda p: quote(p or "")
+templates.env.filters["studies"] = db.parse_studies
 templates.env.filters["date"] = lambda ts: datetime.fromtimestamp(ts).strftime("%Y-%m-%d") if ts else ""
 
 
@@ -43,6 +44,15 @@ def todo_count():
     conn = db.connect()
     try:
         return db.count_models(conn, DEFAULT_STATUSES)
+    finally:
+        conn.close()
+
+
+def all_studies():
+    """Every study, for the list filter and the model form's checkboxes."""
+    conn = db.connect()
+    try:
+        return db.list_studies(conn)
     finally:
         conn.close()
 
@@ -68,7 +78,7 @@ def books_warning():
 
 templates.env.globals.update(STATUSES=db.STATUSES, STATUS_LABELS=db.STATUS_LABELS, urlencode=urlencode,
                              todo_count=todo_count, BOOK_STATUSES=db.BOOK_STATUSES,
-                             BOOK_STATUS_LABELS=db.BOOK_STATUS_LABELS, books_warning=books_warning,
+                             BOOK_STATUS_LABELS=db.BOOK_STATUS_LABELS, books_warning=books_warning, all_studies=all_studies,
                              book_missing=lambda path: bool(path) and not books.exists(path))
 
 
@@ -91,19 +101,27 @@ def _opt_int(value):
 
 # --- list ---
 
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request, conn=Depends(get_conn)):
-    params = request.query_params
+def _list_filter(params):
+    """The main list's filters from query params (or the same fields posted as a form)."""
     statuses = [s for s in params.getlist("status") if s in db.STATUSES]
     if "filtered" not in params:
         statuses = DEFAULT_STATUSES
-    q = params.get("q", "")
     sort = params.get("sort", "mine")
     if sort not in db.SORTS:
         sort = "mine"
-    models = db.list_models(conn, statuses, q, sort)
+    # "in:3" / "out:3": only, or all but, study 3's models.
+    mode, _, study_id = (params.get("study") or "").partition(":")
+    study = (mode, int(study_id)) if mode in ("in", "out") and study_id.isdigit() else None
+    return {"statuses": statuses, "q": params.get("q", ""), "sort": sort, "study": study}
+
+
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request, conn=Depends(get_conn)):
+    f = _list_filter(request.query_params)
+    models = db.list_models(conn, **f)
     return templates.TemplateResponse(request, "list.html", {
-        "models": models, "statuses": statuses, "q": q, "sort": sort, "total": db.count_models(conn),
+        **f, "models": models, "total": db.count_models(conn),
+        "study_value": request.query_params.get("study", "") if f["study"] else "",
     })
 
 
@@ -135,6 +153,7 @@ def new_model(request: Request, conn=Depends(get_conn)):
     prefill = dict(request.query_params)
     book = db.get_book_by_path(conn, prefill.get("book", ""))
     prefill["offset"] = book["page_offset"] if book else 0
+    prefill["study_ids"] = [int(s) for s in request.query_params.getlist("study") if s.isdigit()]
     return _form_page(request, prefill=prefill)
 
 
@@ -202,8 +221,18 @@ async def _fields_from_form(request: Request, conn):
     return form, fields
 
 
-def _after_save(form, fields):
-    """Back to the list, or for "Save and new" a fresh form with the designer and book carried over."""
+def _save_studies(conn, model_id, form):
+    """The form's ticked studies plus an optional new one; returns the model's study ids."""
+    ids = [int(s) for s in form.getlist("study") if s.isdigit()]
+    new = db.study_by_name(conn, form.get("new_study") or "")
+    if new:
+        ids.append(new)
+    db.set_model_studies(conn, model_id, ids)
+    return ids
+
+
+def _after_save(form, fields, study_ids):
+    """Back to the list, or for "Save and new" a fresh form with the designer, book and studies carried over."""
     if form.get("then") != "new":
         return _redirect()
     params = {
@@ -211,8 +240,9 @@ def _after_save(form, fields):
         "book": (form.get("book") or "").strip() if fields["book_id"] else "",
         "position": "top" if form.get("position") == "top" else "",
         "saved": fields["name"],
+        "study": study_ids,
     }
-    return _redirect("/models/new?" + urlencode({k: v for k, v in params.items() if v}))
+    return _redirect("/models/new?" + urlencode({k: v for k, v in params.items() if v}, doseq=True))
 
 
 @app.post("/models")
@@ -222,7 +252,7 @@ async def create_model(request: Request, conn=Depends(get_conn)):
     photo = await _save_photo(model_id, form.get("photo"))
     if photo:
         db.update_model(conn, model_id, {"photo": photo})
-    return _after_save(form, fields)
+    return _after_save(form, fields, _save_studies(conn, model_id, form))
 
 
 @app.post("/models/{model_id}")
@@ -238,7 +268,7 @@ async def update_model(request: Request, model_id: int, conn=Depends(get_conn)):
             old.unlink()
         fields["photo"] = None
     db.update_model(conn, model_id, fields)
-    return _after_save(form, fields)
+    return _after_save(form, fields, _save_studies(conn, model_id, form))
 
 
 @app.post("/models/{model_id}/delete")
@@ -491,10 +521,12 @@ async def import_upload(file: UploadFile, conn=Depends(get_conn)):
 def export(conn=Depends(get_conn)):
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["name", "designer", "book_title", "book_path", "page", "url", "complexity", "paper", "status", "notes"])
+    w.writerow(["name", "designer", "book_title", "book_path", "page", "url", "complexity", "paper", "status", "notes",
+                "studies"])
     for m in db.list_models(conn):
         w.writerow([m["name"], m["designer"], m["book_title"] or "", m["book_path"] or "", m["page"] or "",
-                    m["url"] or "", m["complexity"] or "", m["paper"], m["status"], m["notes"]])
+                    m["url"] or "", m["complexity"] or "", m["paper"], m["status"], m["notes"],
+                    "; ".join(name for _, name in db.parse_studies(m["studies"]))])
     return Response(out.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="origami-list.csv"'})
 
@@ -518,3 +550,69 @@ def save_notes(body: str = Form(""), rev: int | None = Form(None), force: bool =
 @app.post("/notes/preview", response_class=HTMLResponse)
 def notes_preview(body: str = Form("")):
     return MARKDOWN.render(body)
+
+
+# --- studies ---
+
+@app.get("/studies", response_class=HTMLResponse)
+def studies(request: Request, conn=Depends(get_conn)):
+    return templates.TemplateResponse(request, "studies.html", {"studies": db.list_studies(conn)})
+
+
+@app.post("/studies")
+def create_study(name: str = Form(...), conn=Depends(get_conn)):
+    study_id = db.study_by_name(conn, name)
+    if not study_id:
+        raise HTTPException(400, "name is required")
+    return _redirect(f"/studies/{study_id}")
+
+
+@app.post("/studies/bulk")
+async def bulk_add_to_study(request: Request, conn=Depends(get_conn)):
+    """Add every model the list currently shows (its filters are posted along) to a study."""
+    form = await request.form()
+    study_id = db.study_by_name(conn, form.get("new_study") or "") or _opt_int(form.get("target_study"))
+    if not study_id or not db.get_study(conn, study_id):
+        raise HTTPException(400, "pick a study or enter a new name")
+    db.add_to_study(conn, study_id, [m["id"] for m in db.list_models(conn, **_list_filter(form))])
+    return Response(status_code=204, headers={"HX-Redirect": f"/studies/{study_id}"})
+
+
+def _study_or_404(conn, study_id):
+    study = db.get_study(conn, study_id)
+    if not study:
+        raise HTTPException(404)
+    return study
+
+
+@app.get("/studies/{study_id}", response_class=HTMLResponse)
+def study_page(request: Request, study_id: int, conn=Depends(get_conn)):
+    study = _study_or_404(conn, study_id)
+    models = db.list_models(conn, study=("in", study_id))
+    return templates.TemplateResponse(request, "study.html", {
+        "study": study, "models": models, "saved": bool(request.query_params.get("saved")),
+    })
+
+
+@app.post("/studies/{study_id}")
+def save_study(study_id: int, name: str = Form(...), notes: str = Form(""), conn=Depends(get_conn)):
+    _study_or_404(conn, study_id)
+    other = db.study_by_name(conn, name, create=False)
+    if not name.strip() or (other and other != study_id):
+        raise HTTPException(400, "name is empty or used by another study")
+    db.update_study(conn, study_id, name, notes.strip())
+    return _redirect(f"/studies/{study_id}?saved=1")
+
+
+@app.post("/studies/{study_id}/delete")
+def delete_study(study_id: int, conn=Depends(get_conn)):
+    _study_or_404(conn, study_id)
+    db.delete_study(conn, study_id)
+    return _redirect("/studies")
+
+
+@app.post("/studies/{study_id}/remove")
+def remove_from_study(study_id: int, model_id: int = Form(...), conn=Depends(get_conn)):
+    _study_or_404(conn, study_id)
+    db.remove_from_study(conn, study_id, model_id)
+    return _redirect(f"/studies/{study_id}")

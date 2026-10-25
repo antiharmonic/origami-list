@@ -66,6 +66,20 @@ MIGRATIONS = [
     """
     ALTER TABLE books ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
     """,
+    """
+    CREATE TABLE studies (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE model_studies (
+        model_id INTEGER NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+        study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        PRIMARY KEY (model_id, study_id)
+    );
+    CREATE INDEX model_studies_study ON model_studies(study_id);
+    """,
 ]
 
 # Below this gap between neighbours, positions are renumbered 1..N.
@@ -185,8 +199,11 @@ def mark_browsing(conn, book_id):
 
 # --- models ---
 
+# `studies` is "id:name" pairs joined by \x1f (see parse_studies), so every model query carries its studies.
 _MODEL_SELECT = """
-    SELECT m.*, b.path AS book_path, b.title AS book_title, b.page_offset AS book_offset
+    SELECT m.*, b.path AS book_path, b.title AS book_title, b.page_offset AS book_offset,
+           (SELECT group_concat(s.id || ':' || s.name, char(31))
+            FROM model_studies ms JOIN studies s ON s.id = ms.study_id WHERE ms.model_id = m.id) AS studies
     FROM models m LEFT JOIN books b ON b.id = m.book_id
 """
 
@@ -197,8 +214,14 @@ SORTS = {
 }
 
 
-def list_models(conn, statuses=None, q="", sort="mine", book_id=None):
+def list_models(conn, statuses=None, q="", sort="mine", book_id=None, study=None):
+    """`study` is ("in" | "out", study_id) to keep only, or drop, a study's models."""
     where, params = [], []
+    if study:
+        mode, study_id = study
+        exists = "EXISTS (SELECT 1 FROM model_studies ms WHERE ms.model_id = m.id AND ms.study_id = ?)"
+        where.append(exists if mode == "in" else "NOT " + exists)
+        params.append(study_id)
     if book_id is not None:
         where.append("m.book_id = ?")
         params.append(book_id)
@@ -301,3 +324,67 @@ def save_notes(conn, body, rev=None):
         if conn.execute(sql, params).rowcount == 0:
             return None
     return get_notes(conn)["rev"]
+
+
+# --- studies (named groups of models) ---
+
+def parse_studies(value):
+    """The `studies` column of a model row -> [(id, name)]."""
+    pairs = (item.split(":", 1) for item in (value or "").split("\x1f") if item)
+    return sorted(((int(i), name) for i, name in pairs), key=lambda p: p[1].lower())
+
+
+def list_studies(conn):
+    return conn.execute("""
+        SELECT s.*, COUNT(m.id) AS model_count,
+               COUNT(CASE WHEN m.status IN ('folded', 'nailed') THEN 1 END) AS done_count,
+               COUNT(CASE WHEN m.status = 'attempted' THEN 1 END) AS attempted_count
+        FROM studies s
+        LEFT JOIN model_studies ms ON ms.study_id = s.id
+        LEFT JOIN models m ON m.id = ms.model_id
+        GROUP BY s.id ORDER BY s.created_at DESC, s.id DESC""").fetchall()
+
+
+def get_study(conn, study_id):
+    return next((s for s in list_studies(conn) if s["id"] == study_id), None)
+
+
+def study_by_name(conn, name, create=True):
+    """Case-insensitive lookup ("rhino" is "Rhino"); returns the id, creating the study if asked."""
+    name = " ".join(name.split())
+    if not name:
+        return None
+    row = conn.execute("SELECT id FROM studies WHERE name = ?", (name,)).fetchone()
+    if row or not create:
+        return row["id"] if row else None
+    with conn:
+        return conn.execute("INSERT INTO studies (name, created_at) VALUES (?, ?)", (name, _now())).lastrowid
+
+
+def update_study(conn, study_id, name, notes):
+    with conn:
+        conn.execute("UPDATE studies SET name = ?, notes = ? WHERE id = ?", (" ".join(name.split()), notes, study_id))
+
+
+def delete_study(conn, study_id):
+    """Removes the study and its memberships; the models stay."""
+    with conn:
+        conn.execute("DELETE FROM studies WHERE id = ?", (study_id,))
+
+
+def set_model_studies(conn, model_id, study_ids):
+    with conn:
+        conn.execute("DELETE FROM model_studies WHERE model_id = ?", (model_id,))
+        conn.executemany("INSERT OR IGNORE INTO model_studies (model_id, study_id) VALUES (?, ?)",
+                         [(model_id, s) for s in study_ids])
+
+
+def add_to_study(conn, study_id, model_ids):
+    with conn:
+        conn.executemany("INSERT OR IGNORE INTO model_studies (model_id, study_id) VALUES (?, ?)",
+                         [(m, study_id) for m in model_ids])
+
+
+def remove_from_study(conn, study_id, model_id):
+    with conn:
+        conn.execute("DELETE FROM model_studies WHERE study_id = ? AND model_id = ?", (study_id, model_id))

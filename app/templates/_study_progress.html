@@ -1,0 +1,5 @@
+{% set total = s.model_count or 1 %}
+<div class="progress" title="{{ s.done_count }} folded, {{ s.attempted_count }} attempted of {{ s.model_count }}">
+  <span class="done" style="width: {{ (100 * s.done_count / total) | round(1) }}%"></span>
+  <span class="attempted" style="width: {{ (100 * s.attempted_count / total) | round(1) }}%"></span>
+</div>

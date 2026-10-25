@@ -19,8 +19,37 @@
       <option value="book" {% if sort == "book" %}selected{% endif %}>Book</option>
     </select>
   </label>
+  {% set studies = all_studies() %}
+  {% if studies %}
+  <label class="sort">Study
+    <select name="study">
+      <option value="">All</option>
+      <optgroup label="Only">
+        {% for s in studies %}<option value="in:{{ s.id }}" {% if study_value == "in:%d" % s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+      </optgroup>
+      <optgroup label="All but">
+        {% for s in studies %}<option value="out:{{ s.id }}" {% if study_value == "out:%d" % s.id %}selected{% endif %}>Not {{ s.name }}</option>{% endfor %}
+      </optgroup>
+    </select>
+  </label>
+  {% endif %}
   <span id="list-count" class="view-count">Showing {{ models | length }} of {{ total }}</span>
 </form>
+
+<details class="bulk-study">
+  <summary>Add the shown models to a study…</summary>
+  <form hx-post="/studies/bulk" hx-include=".filters" class="bulk-row">
+    {% if studies %}
+    <select name="target_study" aria-label="Study">
+      {% for s in studies %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+    </select>
+    <span class="hint">or</span>
+    {% endif %}
+    <input name="new_study" placeholder="New study name" aria-label="New study name">
+    <button type="submit">Add</button>
+    <span class="hint">Adds everything the current search and filters show.</span>
+  </form>
+</details>
 
 <ul id="list" class="models {% if sort == 'mine' %}sortable{% endif %}">
   {% for m in models %}

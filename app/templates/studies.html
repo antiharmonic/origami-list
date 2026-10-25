@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Studies · Origami List{% endblock %}
+{% block content %}
+<h1>Studies</h1>
+<p class="hint">Groups of models to fold and compare, e.g. a run of rhinoceroses or a designer deep dive.
+  Add models from their form, or search the list and use “Add the shown models to a study”.</p>
+
+<form method="post" action="/studies" class="filters">
+  <input name="name" required placeholder="New study name" aria-label="New study name">
+  <button type="submit" class="primary">Create study</button>
+</form>
+
+{% if studies %}
+<ul class="study-list">
+  {% for s in studies %}
+  <li class="panel">
+    <div class="study-list-head">
+      <a href="/studies/{{ s.id }}"><strong>{{ s.name }}</strong></a>
+      <span class="hint">{{ s.done_count }} of {{ s.model_count }} folded</span>
+    </div>
+    {% include "_study_progress.html" %}
+    {% if s.notes %}<p class="hint study-excerpt">{{ s.notes | truncate(160) }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">No studies yet.</p>
+{% endif %}
+{% endblock %}

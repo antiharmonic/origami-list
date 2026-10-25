@@ -2,7 +2,7 @@
 
 Accepts both the original hand-made format
     model,author,complexity,suggested_paper,book,file,page,folded,notes
-and this app's own /export.csv format.
+and this app's own /export.csv format (whose "studies" column is names joined with "; ").
 
 Usage: python -m app.import_csv FILE   (use "-" to read stdin)
 """
@@ -25,6 +25,7 @@ ALIASES = {
     "status": ["status"],
     "folded": ["folded"],
     "notes": ["notes"],
+    "studies": ["studies"],
 }
 
 
@@ -77,7 +78,10 @@ def import_text(conn, text):
                 book_title = _get(row, "book_title") or file
                 warnings.append(f"line {line}: book file not found for {name!r}: {file}")
                 fields["notes"] = f"[Book: {book_title}] {fields['notes']}".strip()
-        db.create_model(conn, fields)
+        model_id = db.create_model(conn, fields)
+        studies = [db.study_by_name(conn, s) for s in _get(row, "studies").split(";") if s.strip()]
+        if studies:
+            db.set_model_studies(conn, model_id, studies)
         imported += 1
     return imported, warnings
 

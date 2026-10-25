@@ -50,6 +50,17 @@
       <label>Paper <input name="paper" placeholder="e.g. 35cm kami, foil, 2 sheets" value="{{ v.paper or '' }}"></label>
       <label>Notes <textarea name="notes" rows="4">{{ v.notes or '' }}</textarea></label>
 
+      {% set member = (m.studies | studies | map('first') | list) if m else (prefill.study_ids or []) %}
+      <div class="study-field">
+        <span class="field-label">Studies</span>
+        <div class="chips">
+          {% for s in all_studies() %}
+          <label class="chip"><input type="checkbox" name="study" value="{{ s.id }}" {% if s.id in member %}checked{% endif %}> {{ s.name }}</label>
+          {% endfor %}
+          <input name="new_study" placeholder="+ New study" aria-label="New study">
+        </div>
+      </div>
+
       <label>Photo of your fold <input type="file" name="photo" accept="image/*"></label>
       {% if m and m.photo %}
       <div class="current-photo">
@@ -68,8 +79,8 @@
       <div class="buttons">
         <button type="submit" class="primary">Save</button>
         <button type="submit" name="then" value="new" title="Save, then add another with the same designer and book">Save and new</button>
-        {% if m %}<a href="/models/new?{{ urlencode({'designer': m.designer, 'book': m.book_path or ''}) }}" class="button"
-                     title="Add another model with the same designer and book">New from this</a>{% endif %}
+        {% if m %}<a href="/models/new?{{ urlencode({'designer': m.designer, 'book': m.book_path or '', 'study': member}, True) }}" class="button"
+                     title="Add another model with the same designer, book and studies">New from this</a>{% endif %}
         <a href="/" class="button">Cancel</a>
       </div>
     </div>
