@@ -357,3 +357,13 @@ def test_empty_books_folder_warns(client, dirs):
     backup.rename(dirs[0])
     books.scan(force=True)
     assert "looks empty" not in client.get("/").text
+
+
+def test_preview_shows_cover_until_a_page_is_entered(client):
+    r = client.get("/api/preview", params={"book": INSECTS})
+    assert "Cover of the selected book" in r.text and "page=1" in r.text
+    client.post("/library/book", data={"path": INSECTS, "title": "Insects", "designers": "", "notes": "",
+                                       "page_offset": "0", "cover_page": "2"})
+    assert "page=2" in client.get("/api/preview", params={"book": INSECTS}).text
+    r = client.get("/api/preview", params={"book": INSECTS, "page": "1"})
+    assert "Cover of" not in r.text and "PDF page 1" in r.text

@@ -265,14 +265,21 @@ def rescan():
 
 
 @app.get("/api/preview", response_class=HTMLResponse)
-def preview(request: Request, book: str = "", page: str = "", printed: str = "", offset: str = ""):
+def preview(request: Request, book: str = "", page: str = "", printed: str = "", offset: str = "",
+            conn=Depends(get_conn)):
     pdf_page = _opt_int(page)
     offset = _opt_int(offset) or 0
     if pdf_page is not None and printed:
         pdf_page += offset
-    ok = bool(book and books.resolve(book) and pdf_page and pdf_page > 0)
+    found = bool(book and books.resolve(book))
+    # No page yet: show the cover, to confirm the right book was picked.
+    cover = found and pdf_page is None
+    if cover:
+        row = db.get_book_by_path(conn, book)
+        pdf_page = row["cover_page"] if row else 1
+    ok = bool(found and pdf_page and pdf_page > 0)
     return templates.TemplateResponse(request, "_preview.html", {
-        "book": book, "page": pdf_page, "ok": ok, "offset": offset, "printed": bool(printed),
+        "book": book, "page": pdf_page, "ok": ok, "cover": cover, "offset": offset, "printed": bool(printed),
     })
 
 
