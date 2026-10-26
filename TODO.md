@@ -1,13 +1,13 @@
 # TODO
 
 ## Setup
-- [ ] Move `~/Books/Nicolas Terry Presents - Origami Nature Study … .pdf` into `~/Books/Origami/`
-- [ ] Import `the-list.csv` (Import / export page, or `docker compose exec -T app python -m app.import_csv - < the-list.csv`)
-- [ ] Click through the UI in Firefox: drag-to-reorder, book search, live preview, photo upload
-- [ ] Confirm the container comes back after a reboot
+- [x] Move `~/Books/Nicolas Terry Presents - Origami Nature Study … .pdf` into `~/Books/Origami/`
+- [x] Import `the-list.csv` (Import / export page, or `docker compose exec -T app python -m app.import_csv - < the-list.csv`)
+- [x] Click through the UI in Firefox: drag-to-reorder, book search, live preview, photo upload
+- [x] Confirm the container comes back after a reboot
 
 ## Ideas
-- [ ] Embedded PDF.js viewer with an "add this page" button (records book + current page)
+- [ ] Viewer v2: "use selection as name" (when the PDF has a text layer), "use this page as cover", open the list's Diagrams links in the viewer
 - [ ] Crop thumbnails to the model image instead of the whole page
 - [ ] Pre-fill model entries from a PDF's outline/bookmarks where books have one
 - [ ] Library: model-name index per book (typed list, or extracted from PDF outlines/TOC) so models are searchable before they're added
@@ -19,4 +19,3 @@
   - design it alongside our own search needs (one box that searches our models/library and offers "search Gilad" as an option?)
 - [ ] Answer `HEAD` requests on `/books/...` (currently 405; GET with ranges works)
 - [ ] Notes: linkify bare URLs (needs `linkify-it-py`)
-- [ ] Decide on the complexity scale (currently 1–5)

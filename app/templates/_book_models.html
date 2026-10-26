@@ -1,0 +1,19 @@
+<section id="book-models">
+  <h2>Models from this book ({{ models | length }})</h2>
+  {% if added %}<p class="flash">Added “{{ added.name }}”{% if added.page %} (p.{{ added.page }}){% endif %}.</p>{% endif %}
+  {% if models %}
+  <ul class="book-models">
+    {% for m in models %}
+    <li{% if m.page %} data-page="{{ m.page }}"{% endif %}>
+      {% if m.page %}<button type="button" class="page-no" data-goto="{{ m.page }}" title="Show this page">p.{{ m.page }}</button>
+      {% else %}<span class="page-no"></span>{% endif %}
+      <a href="/models/{{ m.id }}/edit">{{ m.name }}</a>
+      {% if m.designer %}<span class="designer">{{ m.designer }}</span>{% endif %}
+      <span class="status-{{ m.status }}">{{ STATUS_LABELS[m.status] }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hint">None yet. Scroll to a model in the book and add it above.</p>
+  {% endif %}
+</section>

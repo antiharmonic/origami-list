@@ -33,6 +33,7 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+app.mount("/pdfjs", StaticFiles(directory=config.PDFJS_DIR, check_dir=False), name="pdfjs")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 templates.env.filters["urlpath"] = lambda p: quote(p or "")
 templates.env.filters["studies"] = db.parse_studies
@@ -488,8 +489,40 @@ def library_book(request: Request, path: str, conn=Depends(get_conn)):
     models = db.list_models(conn, book_id=b["id"], sort="book") if b["id"] else []
     return templates.TemplateResponse(request, "book.html", {
         "b": b, "models": models, "saved": bool(request.query_params.get("saved")),
-        "relinked": bool(request.query_params.get("relinked")),
+        "relinked": bool(request.query_params.get("relinked")), "page": _opt_int(request.query_params.get("page", "")),
     })
+
+
+@app.post("/library/book/models", response_class=HTMLResponse)
+async def quick_add_model(request: Request, conn=Depends(get_conn)):
+    """The book page's quick add: create a model on the viewer's current page, then re-render the book's model list."""
+    form = await request.form()
+    path = form.get("path") or ""
+    if _book_entry_or_404(conn, path)["missing"]:
+        raise HTTPException(400, "the book's file is missing")
+    name = (form.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "name is required")
+    status = form.get("status") or "want"
+    book_id = db.get_or_create_book(conn, path)
+    db.mark_browsing(conn, book_id)
+    page = _opt_int(form.get("page") or "")
+    model_id = db.create_model(conn, {
+        "name": name,
+        "designer": (form.get("designer") or "").strip(),
+        "complexity": _opt_int(form.get("complexity") or ""),
+        "status": status if status in db.STATUSES else "want",
+        "book_id": book_id,
+        "page": page if page and page > 0 else None,
+    })
+    study_ids = _save_studies(conn, model_id, form)
+    models = db.list_models(conn, book_id=book_id, sort="book")
+    return HTMLResponse(
+        templates.get_template("_book_models.html").render(models=models, added={"name": name, "page": page})
+        + templates.get_template("_todo_count.html").render(oob=True)
+        + templates.get_template("_study_chips.html").render(member=study_ids, oob=True)
+        + templates.get_template("_book_status.html").render(b=_book_entry_or_404(conn, path), oob=True)
+    )
 
 
 @app.post("/library/book")

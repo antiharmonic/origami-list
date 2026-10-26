@@ -1,0 +1,6 @@
+<div id="study-chips" class="chips"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% for s in all_studies() %}
+  <label class="chip"><input type="checkbox" name="study" value="{{ s.id }}" {% if s.id in member %}checked{% endif %}> {{ s.name }}</label>
+  {% endfor %}
+  <input name="new_study" placeholder="+ New study" aria-label="New study">
+</div>

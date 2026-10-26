@@ -1,70 +1,61 @@
 {% extends "base.html" %}
 {% block title %}{{ b.title }} · Origami List{% endblock %}
+{% block main_class %}wide{% endblock %}
 {% block content %}
 {% set pdf = "/books/" ~ (b.path | urlpath) %}
-<p><a href="/library">← Library</a></p>
-<div class="book-page">
-  <div class="book-cover-col">
-    {% if b.missing %}
-    <div class="missing-cover">
-      <strong>File missing</strong>
-      <span class="hint">It was renamed, moved or deleted. Relink this book to its new file below; its models move with it.</span>
+<div class="reader">
+  <aside class="reader-panel">
+    <p><a href="/library">← Library</a></p>
+    <div class="reader-title">
+      <h1>{{ b.title }}</h1>
+      {% if not b.missing %}{% include "_star.html" %}{% endif %}
     </div>
-    {% else %}
-    <div class="cover-wrap">
-      <a href="{{ pdf }}" target="_blank" rel="noopener">
-        <img src="/thumb?{{ urlencode({'book': b.path, 'page': b.cover_page}) }}" alt="Cover of {{ b.title }}">
-      </a>
-      {% include "_star.html" %}
-    </div>
-    <div class="buttons stacked">
-      <a class="button primary" href="/models/new?{{ urlencode({'book': b.path, 'designer': b.designers if ',' not in b.designers else ''}) }}">+ Add model from this book</a>
-      <a class="button" href="{{ pdf }}" target="_blank" rel="noopener">Open PDF</a>
-      <form method="post" action="/library/hide">
-        <input type="hidden" name="path" value="{{ b.path }}">
-        <input type="hidden" name="hidden" value="{{ 0 if b.hidden else 1 }}">
-        <button type="submit" class="button" title="{{ 'Show this book in the library again' if b.hidden else 'Leave the file alone but keep it out of the library and book search' }}">
-          {{ "Unhide" if b.hidden else "Hide from library" }}</button>
-      </form>
-    </div>
-    {% endif %}
-  </div>
-
-  <div class="book-main">
-    <h1>{{ b.title }}</h1>
-    <p class="hint">{{ b.path }}{% if b.added_at %} · added {{ b.added_at | date }}{% endif %}{% if b.hidden %} · <strong>hidden from the library</strong>{% endif %}</p>
+    <p class="hint path">{{ b.path }}{% if b.added_at %} · added {{ b.added_at | date }}{% endif %}{% if b.hidden %} · <strong>hidden from the library</strong>{% endif %}</p>
     {% if relinked %}<p class="flash">Relinked to this file.</p>{% endif %}
 
     {% if not b.missing %}
-    <form method="post" action="/library/status" class="status-buttons">
+    {% include "_book_status.html" %}
+
+    <form id="quick-add" class="model-form quick-add" hx-post="/library/book/models" hx-target="#book-models" hx-swap="outerHTML">
+      <h2>Add a model</h2>
       <input type="hidden" name="path" value="{{ b.path }}">
-      <input type="hidden" name="back" value="book">
-      {% for s in BOOK_STATUSES %}
-      <button type="submit" name="status" value="{{ s }}" class="{{ 'primary' if s == b.status }}">{{ BOOK_STATUS_LABELS[s] }}</button>
-      {% endfor %}
+      <label>Name <input id="qa-name" name="name" required autocomplete="off"></label>
+      <label>Designer <input name="designer" value="{{ b.designers if ',' not in b.designers else '' }}"></label>
+      <div class="row">
+        <label title="The PDF page; it follows the viewer, or type one">Page <input id="qa-page" name="page" type="number" min="1" value="{{ page or '' }}"></label>
+        <label>Complexity
+          <select name="complexity">
+            <option value="">–</option>
+            {% for n in range(1, 6) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Status
+          <select name="status">
+            {% for s in STATUSES %}<option value="{{ s }}" {% if s == "want" %}selected{% endif %}>{{ STATUS_LABELS[s] }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="study-field">
+        <span class="field-label">Studies</span>
+        {% set member = [] %}
+        {% include "_study_chips.html" %}
+      </div>
+      <div class="buttons">
+        <button type="submit" class="primary">Add</button>
+        <a class="button" href="/models/new?{{ urlencode({'book': b.path, 'designer': b.designers if ',' not in b.designers else ''}) }}">Full form…</a>
+      </div>
+      <p class="hint">The page follows the viewer. Enter adds; designer, status and studies stay for the next one.</p>
     </form>
     {% endif %}
 
-    <section>
-      <h2>Models from this book ({{ models | length }})</h2>
-      {% if models %}
-      <ul class="book-models">
-        {% for m in models %}
-        <li>
-          <span class="page-no">{% if m.page %}p.{{ m.page }}{% endif %}</span>
-          <a href="/models/{{ m.id }}/edit">{{ m.name }}</a>
-          {% if m.designer %}<span class="designer">{{ m.designer }}</span>{% endif %}
-          <span class="status-{{ m.status }}">{{ STATUS_LABELS[m.status] }}</span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p class="hint">None yet. Open the PDF in another window and use “Add model from this book” with Save and new.</p>
-      {% endif %}
-    </section>
+    {% include "_book_models.html" %}
 
-    <section>
-      <h2>Details</h2>
+    {% if not b.missing %}
+    <p class="hint"><a id="open-native" href="{{ pdf }}{% if page %}#page={{ page }}{% endif %}" target="_blank" rel="noopener">Open in Firefox's viewer</a></p>
+    {% endif %}
+
+    <details class="book-section"{% if saved %} open{% endif %}>
+      <summary><h2>Details</h2></summary>
       {% if saved %}<p class="flash">Saved.</p>{% endif %}
       <form method="post" action="/library/book" class="model-form book-details">
         <input type="hidden" name="path" value="{{ b.path }}">
@@ -77,9 +68,9 @@
         </div>
         <div class="buttons"><button type="submit" class="primary">Save details</button></div>
       </form>
-    </section>
+    </details>
 
-    <details class="relink"{% if b.missing %} open{% endif %}>
+    <details class="relink book-section"{% if b.missing %} open{% endif %}>
       <summary><h2>Relink to another file…</h2></summary>
       <p class="hint">For a renamed or moved file, or to swap in a better scan. This book's models, status, star and details move to the new file.</p>
       <form method="post" action="/library/relink" class="model-form book-details">
@@ -115,11 +106,91 @@
         <div class="buttons"><button type="submit" class="primary">Relink</button></div>
       </form>
     </details>
+
+    {% if not b.missing %}
+    <form method="post" action="/library/hide">
+      <input type="hidden" name="path" value="{{ b.path }}">
+      <input type="hidden" name="hidden" value="{{ 0 if b.hidden else 1 }}">
+      <button type="submit" class="button" title="{{ 'Show this book in the library again' if b.hidden else 'Leave the file alone but keep it out of the library and book search' }}">
+        {{ "Unhide" if b.hidden else "Hide from library" }}</button>
+    </form>
+    {% endif %}
+  </aside>
+
+  <div class="reader-view">
+    {% if b.missing %}
+    <div class="missing-cover">
+      <strong>File missing</strong>
+      <span class="hint">It was renamed, moved or deleted. Relink this book to its new file (in the panel); its models move with it.</span>
+    </div>
+    {% else %}
+    <iframe id="viewer" title="{{ b.title }}"
+            src="/pdfjs/web/viewer.html?{{ urlencode({'file': pdf}) }}{% if page %}#page={{ page }}{% endif %}"></iframe>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script>
+  // The reader fills the window below the header (and the warning banner, if shown).
+  (function () {
+    var reader = document.querySelector(".reader");
+    function fit() { reader.style.setProperty("--reader-top", reader.getBoundingClientRect().top + window.scrollY + "px"); }
+    fit();
+    window.addEventListener("resize", fit);
+  })();
+
+  // Viewer <-> panel: the quick-add page follows the PDF.js viewer, and a model's p.N button jumps to it.
+  (function () {
+    var iframe = document.getElementById("viewer");
+    if (!iframe) return;
+    var pageInput = document.getElementById("qa-page"), native = document.getElementById("open-native");
+    var pdf = native.getAttribute("href").split("#")[0];
+    var viewer = null, current = Number(pageInput.value) || null;
+
+    function highlight() {
+      document.querySelectorAll("#book-models li[data-page]").forEach(function (li) {
+        li.classList.toggle("here", Number(li.dataset.page) === current);
+      });
+    }
+
+    function showPage(n) {
+      current = n;
+      if (document.activeElement !== pageInput) pageInput.value = n;
+      native.href = pdf + "#page=" + n;
+      highlight();
+    }
+
+    iframe.addEventListener("load", function () {
+      var app = iframe.contentWindow.PDFViewerApplication;
+      if (!app) return;
+      app.initializedPromise.then(function () {
+        viewer = app;
+        app.eventBus.on("pagesinit", function () { showPage(app.page); });
+        app.eventBus.on("pagechanging", function (e) { showPage(e.pageNumber); });
+      });
+    });
+
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-goto]");
+      if (!btn || !viewer) return;
+      viewer.page = Number(btn.dataset.goto);
+    });
+
+    // After an add: clear the per-model fields, keep designer/status/studies, ready for the next one.
+    document.body.addEventListener("htmx:afterSettle", highlight);
+    document.getElementById("quick-add").addEventListener("htmx:afterRequest", function (e) {
+      if (!e.detail.successful || e.detail.elt !== this) return;
+      var name = document.getElementById("qa-name");
+      name.value = "";
+      this.querySelector("[name=complexity]").value = "";
+      name.focus();
+    });
+
+    highlight();
+  })();
+</script>
 <script>
   // Relink: pick the new file, then preview where the shifted pages land in it.
   (function () {

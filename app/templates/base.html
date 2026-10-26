@@ -24,7 +24,7 @@
   </header>
   {% set warning = books_warning() %}
   {% if warning %}<div class="banner-warning" role="alert">{{ warning }}</div>{% endif %}
-  <main>
+  <main class="{% block main_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
   {% include "_notes.html" %}

@@ -1,0 +1,7 @@
+<form id="book-status" method="post" action="/library/status" class="status-buttons"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <input type="hidden" name="path" value="{{ b.path }}">
+  <input type="hidden" name="back" value="book">
+  {% for s in BOOK_STATUSES %}
+  <button type="submit" name="status" value="{{ s }}" class="{{ 'primary' if s == b.status }}">{{ BOOK_STATUS_LABELS[s] }}</button>
+  {% endfor %}
+</form>

@@ -11,6 +11,9 @@ docker compose logs -f
 ```
 `restart: unless-stopped` plus the enabled `docker.service` brings it back on every boot.
 
+## Reading a book
+A book's page (click it in the **Library**) shows the PDF on the right and a panel on the left. Scroll to a model, type its name in **Add a model** and press Enter: the page is filled in from the viewer, and the designer, status and studies stay for the next one. Click a model's `p.N` to jump back to it. PDF.js is downloaded when the image is built; bump `PDFJS_VERSION`/`PDFJS_SHA256` in the `Dockerfile` to upgrade it.
+
 ## Fold photos
 To add a photo of your fold, pick a file on the model form, drop one onto the photo field, or just paste an image (Ctrl+V) anywhere on the form. It's saved with the model when you click Save.
 

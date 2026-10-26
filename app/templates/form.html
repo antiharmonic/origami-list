@@ -53,12 +53,7 @@
       {% set member = (m.studies | studies | map('first') | list) if m else (prefill.study_ids or []) %}
       <div class="study-field">
         <span class="field-label">Studies</span>
-        <div class="chips">
-          {% for s in all_studies() %}
-          <label class="chip"><input type="checkbox" name="study" value="{{ s.id }}" {% if s.id in member %}checked{% endif %}> {{ s.name }}</label>
-          {% endfor %}
-          <input name="new_study" placeholder="+ New study" aria-label="New study">
-        </div>
+        {% include "_study_chips.html" %}
       </div>
 
       <div id="photo-drop" class="photo-drop">
