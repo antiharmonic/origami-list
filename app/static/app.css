@@ -149,6 +149,9 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
 .result:hover { background: var(--bg); }
 .current-photo { display: flex; gap: 1rem; align-items: center; }
 .current-photo img { width: 100px; border-radius: 6px; }
+.photo-drop { border: 2px dashed transparent; border-radius: 8px; padding: .25rem; margin: -.25rem; }
+.photo-drop.dragging { border-color: var(--muted); }
+.photo-drop .hint { margin: .2rem 0 .5rem; }
 .buttons { display: flex; gap: .6rem; }
 .delete-form { margin-top: 2rem; }
 .hint { color: var(--muted); font-size: .9rem; }

@@ -11,6 +11,9 @@ docker compose logs -f
 ```
 `restart: unless-stopped` plus the enabled `docker.service` brings it back on every boot.
 
+## Fold photos
+To add a photo of your fold, pick a file on the model form, drop one onto the photo field, or just paste an image (Ctrl+V) anywhere on the form. It's saved with the model when you click Save.
+
 ## Studies
 Group models you want to fold together, e.g. every rhinoceros, or a designer deep dive. Tick studies (or type a new one) on a model's form. To start one quickly, search the list ("rhino") and use **Add the shown models to a study…**. Each study has a page with a gallery (your fold photo if you uploaded one, otherwise the diagram page), a note, and folded/attempted progress. The list's **Study** filter shows only a study's models, or everything but them.
 

@@ -61,7 +61,15 @@
         </div>
       </div>
 
-      <label>Photo of your fold <input type="file" name="photo" accept="image/*"></label>
+      <div id="photo-drop" class="photo-drop">
+        <label>Photo of your fold <input type="file" id="photo" name="photo" accept="image/*"></label>
+        <p class="hint">…or paste an image (Ctrl+V) anywhere on this page, or drop one here.</p>
+        <div id="photo-staged" class="current-photo" hidden>
+          <img alt="New photo">
+          <span class="hint">New photo, saved when you click Save.</span>
+          <button type="button" id="photo-clear">Clear</button>
+        </div>
+      </div>
       {% if m and m.photo %}
       <div class="current-photo">
         <img src="/photos/{{ m.photo }}" alt="Current photo">
@@ -128,5 +136,53 @@
         htmx.trigger(document.body, "book-offset-loaded");
       });
   });
+
+  // Fold photo: a pasted or dropped image goes into the file input, so it uploads with the normal Save.
+  (function () {
+    var input = document.getElementById("photo");
+    var drop = document.getElementById("photo-drop");
+    var staged = document.getElementById("photo-staged");
+    var img = staged.querySelector("img");
+
+    function firstImage(files) {
+      return Array.from(files || []).find(function (f) { return f.type.startsWith("image/"); });
+    }
+
+    function show(file) {
+      if (img.src) URL.revokeObjectURL(img.src);
+      if (!file) { img.removeAttribute("src"); staged.hidden = true; return; }
+      img.src = URL.createObjectURL(file);
+      staged.hidden = false;
+      var remove = document.querySelector("[name=remove_photo]");
+      if (remove) remove.checked = false;
+    }
+
+    function stage(file) {
+      var dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      show(file);
+    }
+
+    input.addEventListener("change", function () { show(input.files[0]); });
+    document.getElementById("photo-clear").addEventListener("click", function () { input.value = ""; show(null); });
+
+    document.addEventListener("paste", function (e) {
+      if (!document.getElementById("notes-panel").hidden) return;
+      var file = firstImage(e.clipboardData && e.clipboardData.files);
+      if (!file) return;
+      e.preventDefault();
+      stage(file);
+    });
+
+    drop.addEventListener("dragover", function (e) { e.preventDefault(); drop.classList.add("dragging"); });
+    drop.addEventListener("dragleave", function () { drop.classList.remove("dragging"); });
+    drop.addEventListener("drop", function (e) {
+      e.preventDefault();
+      drop.classList.remove("dragging");
+      var file = firstImage(e.dataTransfer.files);
+      if (file) stage(file);
+    });
+  })();
 </script>
 {% endblock %}
