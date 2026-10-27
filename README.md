@@ -41,7 +41,9 @@ Group models you want to fold together, e.g. every rhinoceros, or a designer dee
 The **Notes** button in the top nav (or Alt+N) opens a scratchpad that's the same on every page, for ideas like "find a good octopus model". It's Markdown (`- bullets`, `**bold**`, `# headings`), autosaves as you type, and Enter continues a list, Tab indents, and Ctrl+B / Ctrl+I bold and italicise.
 
 ## Data
-Everything lives in `./data/`: `origami.db` (SQLite), `thumbs/` (a cache, safe to delete) and `photos/`. Back it up by copying that folder, or use **Books & import → Export CSV**.
+Everything lives in `./data/`: `origami.db` (SQLite: the list, books, studies, notes, glossary and saved translations), `photos/` (your uploads), and two things that rebuild themselves: `ocr.db` (page text for search) and `thumbs/` (a cache). To back up, keep `origami.db` and `photos/`; the nightly backup timer (the separate `origami-list-backup` repo) does exactly that. Copy `origami.db` with `sqlite3 data/origami.db ".backup copy.db"` rather than `cp` while the app is running.
+
+**Export CSV** (Import / export page) is a spreadsheet-friendly list of your models, not a backup: it leaves out the list order, dates, photos and book details, and importing it again adds the models a second time.
 
 ## Importing a CSV
 Use the upload on the **Books & import** page, or:

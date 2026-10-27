@@ -81,7 +81,8 @@
 
     {% if not b.missing %}
     <div class="hint ocr-status">
-      {% if ocr.state == "done" %}Text search: every page read ✓
+      {% if ocr.state == "done" and ocr.failed %}Text search: read, except {{ ocr.failed }} page{{ "s" if ocr.failed != 1 }} that couldn't be read
+      {% elif ocr.state == "done" %}Text search: every page read ✓
       {% elif ocr.state == "running" %}Text search: read {{ ocr.done_pages }} of {{ ocr.pages }} pages…
       {% elif ocr.state == "error" %}Text search: couldn't read this file
       {% else %}Text search: queued{% if ocr.position %}, #{{ ocr.position }} in line{% endif %}

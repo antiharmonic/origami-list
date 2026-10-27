@@ -7,6 +7,8 @@
       {% elif detected_offset %}Pages offset {{ "%+d" | format(detected_offset) }} from the printed numbers (detected).
         <button type="button" class="linkish" hx-post="/library/book/offset" hx-vals='{{ {"path": b.path} | tojson }}'
                 hx-target="#suggestions" hx-swap="outerHTML" title="Also use it for printed page numbers in the model form">Use as book offset</button>
+        · <button type="button" class="linkish" hx-post="/library/book/offset" hx-vals='{{ {"path": b.path, "action": "ignore"} | tojson }}'
+                hx-target="#suggestions" hx-swap="outerHTML" title="The detection is wrong: use the printed page numbers as they are">Ignore</button>
       {% else %}Pages are the printed numbers, unverified: check them in the viewer.{% endif %}
       ✓ means the name was found on that page.
     </p>

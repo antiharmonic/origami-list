@@ -944,3 +944,79 @@ def test_translations_migration_keeps_rows(tmp_path):
     assert db.get_translation(c, 1, 7)["body"] == "Seven"
     assert c.execute("SELECT page_end FROM translations").fetchone()[0] == 7
     c.close()
+
+
+# --- cleanup pass: OCR failures, suggestion matching, ignored offsets, WAL ---
+
+def test_failed_ocr_page_is_retried_not_indexed(dirs, monkeypatch):
+    conn = ocr.connect()
+    make_pdf(dirs[0] / "Texty.pdf", pages=2, text=RHINO_TEXT)
+    present = books.scan(force=True)
+    ocr.sync(conn, ocr.sizes_and_mtimes(present))
+    real = ocr.page_text
+
+    def flaky(full, page):
+        if page == 2:
+            raise RuntimeError("tesseract crashed")
+        return real(full, page)
+    monkeypatch.setattr(ocr, "page_text", flaky)
+
+    ocr.process_book(conn, "Texty.pdf", workers=1, log=lambda m: None)
+    row = conn.execute("SELECT * FROM ocr_books WHERE path = 'Texty.pdf'").fetchone()
+    assert (row["state"], row["done_pages"]) == ("queued", 1)  # not finished: page 2 will be retried
+    page = ocr.get_page(conn, "Texty.pdf", 2)
+    assert (page["source"], page["text"], page["attempts"]) == ("error", "", 1) and "crashed" in page["error"]
+    assert not ocr.search(conn, ["crashed"], {"Texty.pdf"})
+
+    # It keeps failing: after MAX_ATTEMPTS the book is done, with the page reported as failed.
+    for _ in range(ocr.MAX_ATTEMPTS - 1):
+        ocr.process_book(conn, "Texty.pdf", workers=1, log=lambda m: None)
+    status = ocr.book_status(conn, "Texty.pdf", set(present), {})
+    assert (status["state"], status["done_pages"], status["failed"]) == ("done", 1, 1)
+
+    # A later success (after the file is re-queued) clears the error and is counted once.
+    monkeypatch.setattr(ocr, "page_text", real)
+    conn.execute("UPDATE ocr_pages SET attempts = 0 WHERE page = 2")
+    conn.commit()
+    ocr.process_book(conn, "Texty.pdf", workers=1, log=lambda m: None)
+    status = ocr.book_status(conn, "Texty.pdf", set(present), {})
+    assert (status["state"], status["done_pages"], status["failed"]) == ("done", 2, 0)
+    assert ocr.get_page(conn, "Texty.pdf", 2)["error"] is None
+    conn.close()
+
+
+def test_unreadable_pdf_is_an_error_not_done(dirs):
+    conn = ocr.connect()
+    (dirs[0] / "Broken.pdf").write_bytes(b"not a pdf")
+    present = books.scan(force=True)
+    ocr.sync(conn, ocr.sizes_and_mtimes(present))
+    with pytest.raises(Exception):
+        ocr.page_count(dirs[0] / "Broken.pdf")
+    ocr.process_book(conn, "Broken.pdf", workers=1, log=lambda m: None)
+    assert conn.execute("SELECT state FROM ocr_books WHERE path = 'Broken.pdf'").fetchone()[0] == "error"
+    conn.close()
+
+
+def test_suggestions_hidden_only_by_matching_names(conn):
+    book_id = db.get_or_create_book(conn, NATURE)
+    entries = [{"name": n, "designer": "", "printed": p, "page": p, "verified": True}
+               for n, p in [("Owl", 10), ("Mouse", 10), ("Fox Terrier", 12)]]
+    db.store_suggestions(conn, book_id, entries, 0, 1)
+    for name in ["Owl (フクロウ)", "Fox"]:
+        db.create_model(conn, {"name": name, "designer": "", "book_id": book_id, "page": 10, "status": "want"})
+    # "Owl (フクロウ)" covers "Owl"; a different model on page 10 doesn't hide "Mouse"; "Fox" isn't "Fox Terrier".
+    assert {s["name"] for s in db.list_suggestions(conn, book_id)} == {"Mouse", "Fox Terrier"}
+
+
+def test_ignore_detected_offset(client, conn):
+    ocr_done(INSECTS, toc_book())
+    client.get("/library/book", params={"path": INSECTS})
+    book_id = db.get_book_by_path(conn, INSECTS)["id"]
+    assert db.list_suggestions(conn, book_id)[0]["page"] == 24  # printed 20 + detected 4
+    out = client.post("/library/book/offset", data={"path": INSECTS, "action": "ignore"}).text
+    assert "unverified" in out and db.get_book_by_path(conn, INSECTS)["toc_offset"] == 0
+    assert db.list_suggestions(conn, book_id)[0]["page"] == 20
+
+
+def test_origami_db_uses_wal(conn):
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"

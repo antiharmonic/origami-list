@@ -639,10 +639,13 @@ async def add_verified_suggestions(request: Request, conn=Depends(get_conn)):
 
 
 @app.post("/library/book/offset", response_class=HTMLResponse)
-def use_detected_offset(path: str = Form(...), conn=Depends(get_conn)):
-    """Make the offset detected from the contents page the book's own (so the model form's printed pages use it)."""
+def detected_offset(path: str = Form(...), action: str = Form("use"), conn=Depends(get_conn)):
+    """The offset detected from the contents page: make it the book's own (`use`), or drop it (`ignore`)."""
     row = _book_row_or_404(conn, path)
-    if not row["page_offset"] and row["toc_offset"]:
+    if action == "ignore":
+        db.set_toc_offset(conn, row["id"], 0)
+    elif not row["page_offset"] and row["toc_offset"]:
+        # Also used for printed page numbers in the model form.
         db.update_book_meta(conn, row["id"], {"page_offset": row["toc_offset"]})
     return HTMLResponse(_render_suggestions(conn, path))
 
@@ -822,7 +825,8 @@ def suggest(request: Request, kind: str, target: str = "", conn=Depends(get_conn
 def page_text(request: Request, path: str, page: int, oconn=Depends(get_ocr)):
     if not books.resolve(path):
         raise HTTPException(404)
-    return templates.TemplateResponse(request, "_page_text.html", {"row": ocr.get_page(oconn, path, page), "page": page})
+    return templates.TemplateResponse(request, "_page_text.html", {
+        "row": ocr.get_page(oconn, path, page), "page": page, "max_attempts": ocr.MAX_ATTEMPTS})
 
 
 _PAGE_HEADING = re.compile(r"<h3>Page (\d+)</h3>")

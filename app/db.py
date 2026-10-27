@@ -154,10 +154,13 @@ def connect(path=None):
     conn = sqlite3.connect(path or config.DATA_DIR / "origami.db", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")  # wait for the other writer (the OCR worker reads this file too)
     return conn
 
 
 def migrate(conn):
+    # WAL lets page views write while the OCR worker reads; it's stored in the file, so this is a no-op after once.
+    conn.execute("PRAGMA journal_mode = WAL")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     for i, sql in enumerate(MIGRATIONS[version:], start=version + 1):
         with conn:
@@ -614,9 +617,8 @@ def list_suggestions(conn, book_id):
     """A book's pending suggestions (verified first), minus any its models already cover."""
     book = get_book(conn, book_id)
     offset = suggestion_offset(book)
-    models = conn.execute("SELECT name, page FROM models WHERE book_id = ?", (book_id,)).fetchall()
-    names = {m["name"].lower() for m in models}
-    pages = {m["page"] for m in models if m["page"]}
+    names = set().union(*(_name_keys(m["name"]) for m in conn.execute("SELECT name FROM models WHERE book_id = ?",
+                                                                        (book_id,))))
     designers = Counter(m["designer"] for m in conn.execute(
         "SELECT designer FROM models WHERE book_id = ? AND designer != ''", (book_id,)))
     # A single-designer book (every model so far by the same person); anthologies get no guess.
@@ -627,10 +629,27 @@ def list_suggestions(conn, book_id):
     for r in conn.execute("""SELECT * FROM suggestions WHERE book_id = ? AND state = 'pending'
                              ORDER BY verified DESC, printed, name""", (book_id,)):
         page = r["printed"] + offset
-        if page < 1 or r["name"].lower() in names or page in pages:
+        if page < 1 or _covered(r["name"], names):
             continue
         out.append({**dict(r), "page": page, "designer": r["designer"] or fallback})
     return out
+
+
+def _name_keys(name):
+    """"Angelfish (エンゼル)" -> {"angelfish (エンゼル)", "angelfish", "エンゼル"}: the ways a name can match."""
+    name = _norm(name).lower()
+    m = re.match(r"^(.*?)\s*\((.*)\)$", name)
+    return {k for k in (name, *(m.groups() if m else ())) if k}
+
+
+def _covered(name, model_keys):
+    """A model already has this suggestion's name, in either language ("Owl" vs "Owl (フクロウ)")."""
+    return bool(_name_keys(name) & model_keys)
+
+
+def set_toc_offset(conn, book_id, offset):
+    with conn:
+        conn.execute("UPDATE books SET toc_offset = ? WHERE id = ?", (offset, book_id))
 
 
 def get_suggestion(conn, suggestion_id):

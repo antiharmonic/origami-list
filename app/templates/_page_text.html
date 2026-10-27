@@ -1,5 +1,7 @@
 {% if row and row.text.strip() %}
 <pre class="page-text-body" title="Select text, then use the buttons below">{{ row.text.strip() }}</pre>
+{% elif row and row.source == "error" %}
+<p class="hint">Couldn't read page {{ page }}{% if row.attempts < max_attempts %} (it will be tried again){% endif %}: {{ row.error }}</p>
 {% elif row %}
 <p class="hint">No text found on page {{ page }}.</p>
 {% else %}

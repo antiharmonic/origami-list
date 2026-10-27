@@ -9,7 +9,7 @@ import sqlite3
 import subprocess
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 from markupsafe import Markup, escape
 
@@ -20,6 +20,7 @@ LANGS = "eng+jpn"
 RENDER_LONG_SIDE = 3500
 PAGE_TIMEOUT = 120
 MIN_TEXT_CHARS = 50  # a page with less real text than this gets OCR'd instead
+MAX_ATTEMPTS = 3  # a page that keeps failing is given up on, so its book can still finish
 _JA = "\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f"
 # Tesseract puts spaces between Japanese characters ("シロ サイ"); Japanese doesn't use them.
 _JA_GAP = re.compile(f"(?<=[{_JA}])[ \t\u3000]+(?=[{_JA}])")
@@ -80,6 +81,12 @@ SCHEMA = [
     ALTER TABLE ocr_control ADD COLUMN busy_secs REAL NOT NULL DEFAULT 0;
     ALTER TABLE ocr_control ADD COLUMN busy_pages INTEGER NOT NULL DEFAULT 0;
     """,
+    # A page that failed keeps its error out of `text` (so search can't match it) and is retried.
+    """
+    ALTER TABLE ocr_pages ADD COLUMN error TEXT;
+    ALTER TABLE ocr_pages ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+    UPDATE ocr_pages SET error = text, text = '', attempts = 1 WHERE source = 'error';
+    """,
 ]
 
 
@@ -98,8 +105,12 @@ def connect():
 # --- reading a page ---
 
 def page_count(full):
-    out = subprocess.run(["pdfinfo", str(full)], capture_output=True, text=True, timeout=60).stdout
-    return next((int(line.split()[1]) for line in out.splitlines() if line.startswith("Pages:")), 0)
+    """The PDF's page count; raises if pdfinfo can't read it (rather than reporting 0 pages)."""
+    out = subprocess.run(["pdfinfo", str(full)], capture_output=True, text=True, timeout=60, check=True).stdout
+    count = next((int(line.split()[1]) for line in out.splitlines() if line.startswith("Pages:")), None)
+    if not count:
+        raise ValueError("pdfinfo reported no pages")
+    return count
 
 
 def page_text(full, page):
@@ -113,16 +124,24 @@ def page_text(full, page):
                         "-f", str(page), "-l", str(page), str(full), f"{tmp}/p"],
                        check=True, capture_output=True, timeout=PAGE_TIMEOUT)
         out = subprocess.run(["tesseract", f"{tmp}/p.png", "-", "-l", LANGS, "--psm", "3"],
-                             capture_output=True, text=True, timeout=PAGE_TIMEOUT,
+                             capture_output=True, text=True, timeout=PAGE_TIMEOUT, check=True,
                              env={**os.environ, "OMP_THREAD_LIMIT": "1"})
     return "ocr", normalize(out.stdout)
 
 
 def _page_job(full, page):
+    """(page, source, text, error); a failure is an "error" page with no text, retried on a later pass."""
     try:
-        return page, *page_text(full, page)
+        return page, *page_text(full, page), None
     except Exception as e:  # one bad page shouldn't stop the book
-        return page, "error", f"{type(e).__name__}: {e}"
+        return page, "error", "", f"{type(e).__name__}: {e}"
+
+
+def _pages_left(conn, path, pages):
+    """Pages still to read: never tried, or failed fewer than MAX_ATTEMPTS times."""
+    settled = {r[0] for r in conn.execute(
+        "SELECT page FROM ocr_pages WHERE path = ? AND (source != 'error' OR attempts >= ?)", (path, MAX_ATTEMPTS))}
+    return [p for p in range(1, pages + 1) if p not in settled]
 
 
 # --- the queue ---
@@ -172,24 +191,27 @@ def process_book(conn, path, workers=1, log=print):
             conn.execute("UPDATE ocr_books SET state = 'error', error = ?, updated_at = ? WHERE path = ?",
                          (str(e), time.time(), path))
         return
-    done = {r[0] for r in conn.execute("SELECT page FROM ocr_pages WHERE path = ?", (path,))}
-    todo = [p for p in range(1, pages + 1) if p not in done]
+    todo = _pages_left(conn, path, pages)
     with conn:
         conn.execute("UPDATE ocr_books SET pages = ?, state = 'running', updated_at = ? WHERE path = ?",
                      (pages, time.time(), path))
     log(f"{path}: {len(todo)} of {pages} pages to read")
     start, finished = time.monotonic(), 0
-    with ProcessPoolExecutor(workers) as pool:
+    # One worker runs in-process (no point forking for it; tests rely on that too).
+    with (ProcessPoolExecutor(workers) if workers > 1 else ThreadPoolExecutor(1)) as pool:
         futures = [pool.submit(_page_job, full, p) for p in todo]
         for f in as_completed(futures):
-            page, source, text = f.result()
+            page, source, text, error = f.result()
             finished += 1
+            failed = int(source == "error")
             with conn:
-                conn.execute("""INSERT INTO ocr_pages (path, page, source, text) VALUES (?, ?, ?, ?)
-                                ON CONFLICT (path, page) DO UPDATE SET source = excluded.source, text = excluded.text""",
-                             (path, page, source, text))
-                conn.execute("UPDATE ocr_books SET done_pages = done_pages + 1, updated_at = ? WHERE path = ?",
-                             (time.time(), path))
+                conn.execute("""INSERT INTO ocr_pages (path, page, source, text, error, attempts) VALUES (?, ?, ?, ?, ?, ?)
+                                ON CONFLICT (path, page) DO UPDATE SET source = excluded.source, text = excluded.text,
+                                error = excluded.error, attempts = attempts + excluded.attempts""",
+                             (path, page, source, text, error, failed))
+                # Counted, not incremented, so a page that failed before and now succeeds isn't counted twice.
+                conn.execute("""UPDATE ocr_books SET updated_at = ?, done_pages = (SELECT COUNT(*) FROM ocr_pages
+                                WHERE path = ocr_books.path AND source != 'error') WHERE path = ?""", (time.time(), path))
             control = get_control(conn)
             if control["paused"] or (control["priority_path"] not in (None, path)):
                 for other in futures:
@@ -199,7 +221,7 @@ def process_book(conn, path, workers=1, log=print):
         with conn:
             conn.execute("UPDATE ocr_control SET busy_secs = busy_secs + ?, busy_pages = busy_pages + ? WHERE id = 1",
                          (time.monotonic() - start, finished))
-    left = conn.execute("SELECT pages - done_pages FROM ocr_books WHERE path = ?", (path,)).fetchone()[0]
+    left = len(_pages_left(conn, path, pages))
     with conn:
         conn.execute("UPDATE ocr_books SET state = ? WHERE path = ?", ("queued" if left > 0 else "done", path))
         conn.execute("UPDATE ocr_control SET priority_path = NULL WHERE id = 1 AND priority_path = ? AND ? = 0", (path, left))
@@ -235,6 +257,8 @@ def book_status(conn, path, present, added):
     if row is None:
         return {"state": "queued", "position": None}
     status = dict(row)
+    status["failed"] = conn.execute("SELECT COUNT(*) FROM ocr_pages WHERE path = ? AND source = 'error'",
+                                    (path,)).fetchone()[0]
     if row["state"] == "queued":
         control = get_control(conn)
         todo = [r[0] for r in conn.execute("SELECT path FROM ocr_books WHERE state IN ('queued', 'running')")
@@ -313,7 +337,8 @@ def search(conn, terms, allowed, max_books=40, max_runs=5, max_pages=3000):
 
 
 def get_page(conn, path, page):
-    return conn.execute("SELECT source, text FROM ocr_pages WHERE path = ? AND page = ?", (path, page)).fetchone()
+    return conn.execute("SELECT source, text, error, attempts FROM ocr_pages WHERE path = ? AND page = ?",
+                        (path, page)).fetchone()
 
 
 def sizes_and_mtimes(paths):

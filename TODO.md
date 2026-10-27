@@ -27,3 +27,5 @@
 - [ ] Answer `HEAD` requests on `/books/...` (currently 405; GET with ranges works)
 - [ ] Notes: linkify bare URLs (needs `linkify-it-py`)
 - [ ] Favicon: an origami crane
+- [ ] Book page: reopen a book at the last page the viewer showed (when no `?page=` is given)
+- [ ] Fold date: record when a model first becomes Folded or Nailed (`updated_at` moves on every edit), with a sort or a small "recently folded" view; it can't be backfilled, so sooner is better
