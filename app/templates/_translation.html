@@ -11,7 +11,13 @@
 
 {% if article %}
 <div class="tr-view" data-view="article"{% if row and view != "article" %} hidden{% endif %}>
+  <div class="tr-box">
+  <button type="button" class="tr-expand" data-tr-expand title="Enlarge" aria-label="Enlarge the translation">
+    <svg class="icon-enlarge" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="1.5" width="9.5" height="9.5" rx="1"/><path d="M11 13v1.5a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1H3"/></svg>
+    <svg class="icon-shrink" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
+  </button>
   <div class="translation tr-article" data-start="{{ article.page }}" data-end="{{ article.page_end }}">{{ article_html }}</div>
+  </div>
   <p class="hint">Article translation, pp.{{ article.page }}–{{ article.page_end }}, {{ article.created_at[:10] }} ({{ article.model }}).
     {% if enabled %}<button type="button" class="linkish" hx-post="/api/translate-range"
             hx-vals='{{ {"path": path, "start": article.page, "end": article.page_end, "page": page} | tojson }}'
@@ -22,7 +28,13 @@
 
 {% if row %}
 <div class="tr-view" data-view="page"{% if article and view != "page" %} hidden{% endif %}>
+  <div class="tr-box">
+  <button type="button" class="tr-expand" data-tr-expand title="Enlarge" aria-label="Enlarge the translation">
+    <svg class="icon-enlarge" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="1.5" width="9.5" height="9.5" rx="1"/><path d="M11 13v1.5a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1H3"/></svg>
+    <svg class="icon-shrink" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
+  </button>
   <div class="translation">{{ html }}</div>
+  </div>
   <p class="hint">Translated {{ row.created_at[:10] }} ({{ row.model }}).
     {% if enabled %}<button type="button" class="linkish" hx-post="/api/translate" hx-vals='{{ {"path": path, "page": page} | tojson }}'
             hx-target="#translate-body" hx-swap="innerHTML" hx-indicator="#translate-busy"

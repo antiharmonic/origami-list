@@ -225,6 +225,24 @@
       if (heading) box.scrollTop = heading.offsetTop - box.offsetTop;
     }
     translateBody.addEventListener("htmx:afterSettle", scrollArticle);
+    // Enlarge: a class on #translate turns the shown translation box into a wide reading pane (CSS), so
+    // it keeps following the viewer through htmx swaps. The same button or Esc puts it back.
+    function setExpanded(on) {
+      translateBox.classList.toggle("tr-expanded", on);
+      translateBox.querySelectorAll("[data-tr-expand]").forEach(function (b) {
+        b.title = on ? "Back to the side panel" : "Enlarge";
+      });
+      scrollArticle();
+    }
+    translateBody.addEventListener("htmx:afterSettle", function () { setExpanded(translateBox.classList.contains("tr-expanded")); });
+    translateBody.addEventListener("click", function (e) {
+      if (e.target.closest("[data-tr-expand]")) setExpanded(!translateBox.classList.contains("tr-expanded"));
+    });
+    translateBox.addEventListener("toggle", function () { if (!translateBox.open) setExpanded(false); });
+    document.addEventListener("keydown", function (e) {
+      var notes = document.getElementById("notes-panel");
+      if (e.key === "Escape" && translateBox.classList.contains("tr-expanded") && (!notes || notes.hidden)) setExpanded(false);
+    });
     translateBody.addEventListener("click", function (e) {
       var btn = e.target.closest("[data-tr-view]");
       if (!btn) return;

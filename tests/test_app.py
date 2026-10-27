@@ -912,6 +912,7 @@ def test_translate_range(client, conn, gemini, dirs, monkeypatch):
     gemini["reply"] = "Just page three."
     out = client.post("/api/translate", data={"path": "Long.pdf", "page": "3"}).text
     assert "Just page three." in out and "It continues." in out and 'data-tr-view="article"' in out
+    assert out.count("data-tr-expand") == 2  # an enlarge button on each translation box
     assert conn.execute("SELECT COUNT(*) FROM translations").fetchone()[0] == 2
 
     # Limits: too many pages, backwards, past the end, outside the books folder.
