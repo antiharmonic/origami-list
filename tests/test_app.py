@@ -760,3 +760,186 @@ def test_fully_indexed_hides_suggestions(client, conn):
     ocr_done(NATURE, {1: "Just a cover"})
     assert "Suggested from contents" not in client.get("/library/book", params={"path": NATURE}).text
     assert db.get_book_by_path(conn, NATURE) is None
+
+
+# --- translation ---
+
+from app import translate  # noqa: E402
+
+
+@pytest.fixture
+def gemini(monkeypatch):
+    """A fake Gemini: records request bodies, answers with `reply` (or raises `fail`)."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    fake = {"calls": [], "reply": "**14.** Fold the corner.\n→ only the top layer", "fail": None}
+
+    def call(body, timeout=None):
+        fake["calls"].append(body)
+        if fake["fail"]:
+            raise translate.TranslateError(fake["fail"])
+        return fake["reply"], "fake-model"
+    monkeypatch.setattr(translate, "call", call)
+    monkeypatch.setattr(translate, "render_page", lambda path, page: b"\x89PNG fake")
+    return fake
+
+
+def test_page_request_has_image_and_hints():
+    body = translate.page_request(b"img", "Tanteidan 26", 218, "カドを折る 前川淳", [("前川淳", "Jun Maekawa")])
+    image, hint = body["contents"][0]["parts"]
+    assert image["inline_data"]["mime_type"] == "image/png" and image["inline_data"]["data"] == "aW1n"
+    assert "PDF page 218" in hint["text"] and "前川淳 = Jun Maekawa" in hint["text"] and "カドを折る" in hint["text"]
+    assert "Write English only" in body["systemInstruction"]["parts"][0]["text"]
+    if shutil.which("pdftoppm"):
+        assert translate.render_page(INSECTS, 1).startswith(b"\x89PNG")
+
+
+def test_translate_page_is_cached(client, conn, gemini):
+    db.seed_glossary(conn)
+    add_ocr_pages([(INSECTS, 2, "カドを折る 前川淳")])
+    page = client.get("/library/book", params={"path": INSECTS}).text
+    assert 'id="translate"' in page and "Translate selection" in page
+    assert "Translate this page" in client.get("/api/translation", params={"path": INSECTS, "page": 2}).text
+
+    out = client.post("/api/translate", data={"path": INSECTS, "page": "2"}).text
+    assert "<strong>14.</strong> Fold the corner." in out and "Retranslate" in out
+    assert "前川淳 = Jun Maekawa" in gemini["calls"][0]["contents"][0]["parts"][1]["text"]
+    # Served from the cache afterwards; Retranslate replaces it.
+    assert "Fold the corner" in client.get("/api/translation", params={"path": INSECTS, "page": 2}).text
+    assert len(gemini["calls"]) == 1
+    gemini["reply"] = "**14.** Valley fold the corner."
+    assert "Valley fold" in client.post("/api/translate", data={"path": INSECTS, "page": "2"}).text
+    assert conn.execute("SELECT COUNT(*) FROM translations").fetchone()[0] == 1
+
+    # Relinking with a shift moves the cached page.
+    db.relink_book(conn, db.get_book_by_path(conn, INSECTS)["id"], NATURE, shift=2)
+    assert "Valley fold" in client.get("/api/translation", params={"path": NATURE, "page": 4}).text
+
+
+def test_translate_errors_and_escaping(client, conn, gemini):
+    gemini["fail"] = "Gemini's free-tier limit was hit; try again in a minute."
+    out = client.post("/api/translate", data={"path": INSECTS, "page": "1"}).text
+    assert "free-tier limit" in out and "Translate this page" in out
+    assert conn.execute("SELECT COUNT(*) FROM translations").fetchone()[0] == 0
+    gemini["fail"] = None
+    gemini["reply"] = "<script>alert(1)</script> hi"
+    out = client.post("/api/translate", data={"path": INSECTS, "page": "1"}).text
+    assert "<script>" not in out and "&lt;script&gt;" in out
+    assert client.post("/api/translate", data={"path": "../secret.pdf", "page": "1"}).status_code == 404
+    assert client.get("/api/translation", params={"path": "../secret.pdf", "page": 1}).status_code == 404
+
+
+def test_translate_selection_cached(client, conn, gemini):
+    gemini["reply"] = "Fold only the top layer."
+    assert "Fold only" in client.post("/api/translate-text", data={"text": "上の 1 枚だけ 折る"}).text
+    assert "Fold only" in client.post("/api/translate-text", data={"text": " 上の 1 枚だけ\n折る "}).text
+    assert len(gemini["calls"]) == 1
+
+
+def test_translation_not_set_up(client, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    out = client.get("/api/translation", params={"path": INSECTS, "page": 1}).text
+    assert "isn't set up" in out and "Translate this page" not in out
+    assert "Translate selection" not in client.get("/library/book", params={"path": INSECTS}).text
+    with pytest.raises(translate.TranslateError, match="GEMINI_API_KEY"):
+        translate.call(translate.text_request("テスト"))
+
+
+def test_gemini_call_retries_busy_and_reports_errors(monkeypatch):
+    import io
+    import json
+    import urllib.error
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(translate, "RETRY_WAITS", (0, 0))
+    answers = []
+
+    def urlopen(req, timeout):
+        code = answers.pop(0)
+        if code != 200:
+            raise urllib.error.HTTPError(req.full_url, code, "x", {}, io.BytesIO(b'{"error": {"message": "nope"}}'))
+        return io.BytesIO(json.dumps({"candidates": [{"content": {"parts": [{"text": "Fold."}]}}]}).encode())
+    monkeypatch.setattr(translate.urllib.request, "urlopen", urlopen)
+
+    answers[:] = [503, 503, 200]
+    assert translate.call(translate.text_request("折る")) == ("Fold.", "gemini-flash-latest")
+    # Still busy after the retries: Flash-Lite takes over.
+    answers[:] = [503, 503, 503, 200]
+    assert translate.call(translate.text_request("折る")) == ("Fold.", "gemini-flash-lite-latest")
+    answers[:] = [429, 200]
+    assert translate.call(translate.text_request("折る")) == ("Fold.", "gemini-flash-lite-latest")
+    answers[:] = [503] * 6
+    with pytest.raises(translate.TranslateError, match="busy"):
+        translate.call(translate.text_request("折る"))
+    answers[:] = [403]
+    with pytest.raises(translate.TranslateError, match="refused.*nope"):
+        translate.call(translate.text_request("折る"))
+
+
+ARTICLE = "### Page 2\nThe story begins.\n\n### Page 3\nIt continues.\n\n### Page 4\nThe end."
+
+
+def test_range_request_has_each_page_and_hint():
+    body = translate.range_request([b"a", b"b", b"c"], "Tanteidan 56", 16, ["一", "二", "三"])
+    parts = body["contents"][0]["parts"]
+    assert [p.get("inline_data", {}).get("mime_type") for p in parts[::2]] == ["image/jpeg"] * 3
+    assert "PDF page 17" in parts[3]["text"] and "二" in parts[3]["text"]
+    assert "PDF pages 16–18" in body["systemInstruction"]["parts"][0]["text"]
+    assert body["generationConfig"]["maxOutputTokens"] == translate.RANGE_MAX_TOKENS
+
+
+def test_render_pages(dirs):
+    if not shutil.which("pdftoppm"):
+        pytest.skip("pdftoppm not installed")
+    make_pdf(dirs[0] / "Long.pdf", pages=5)
+    images = translate.render_pages("Long.pdf", 2, 4)
+    assert len(images) == 3 and all(i.startswith(b"\xff\xd8") for i in images)
+
+
+def test_translate_range(client, conn, gemini, dirs, monkeypatch):
+    make_pdf(dirs[0] / "Long.pdf", pages=5)
+    books.scan(force=True)
+    monkeypatch.setattr(translate, "render_pages", lambda path, start, end: [b"jpg"] * (end - start + 1))
+    gemini["reply"] = ARTICLE
+    out = client.post("/api/translate-range", data={"path": "Long.pdf", "start": "2", "end": "4", "page": "3"}).text
+    assert 'id="tp-3"' in out and "It continues." in out and "Article translation, pp.2–4" in out
+    assert len(gemini["calls"]) == 1 and len(gemini["calls"][0]["contents"][0]["parts"]) == 6
+    assert conn.execute("SELECT COUNT(*) FROM translations").fetchone()[0] == 1
+
+    # Every page in the range shows it; the page after doesn't.
+    assert "It continues." in client.get("/api/translation", params={"path": "Long.pdf", "page": 4}).text
+    assert "It continues." not in client.get("/api/translation", params={"path": "Long.pdf", "page": 5}).text
+
+    # A page's own translation and the article coexist, with a switch between them.
+    gemini["reply"] = "Just page three."
+    out = client.post("/api/translate", data={"path": "Long.pdf", "page": "3"}).text
+    assert "Just page three." in out and "It continues." in out and 'data-tr-view="article"' in out
+    assert conn.execute("SELECT COUNT(*) FROM translations").fetchone()[0] == 2
+
+    # Limits: too many pages, backwards, past the end, outside the books folder.
+    for start, end, message in [("1", "9", "Pick 2 to 8"), ("4", "2", "Pick 2 to 8"), ("4", "6", "has 5 pages")]:
+        out = client.post("/api/translate-range", data={"path": "Long.pdf", "start": start, "end": end}).text
+        assert message in out
+    assert len(gemini["calls"]) == 2
+    assert client.post("/api/translate-range", data={"path": "../secret.pdf", "start": "1", "end": "2"}).status_code == 404
+
+    # Relinking with a shift moves both ends.
+    db.relink_book(conn, db.get_book_by_path(conn, "Long.pdf")["id"], INSECTS, shift=1)
+    assert "It continues." in client.get("/api/translation", params={"path": INSECTS, "page": 5}).text
+
+
+def test_truncated_reply_is_marked():
+    reply = {"candidates": [{"content": {"parts": [{"text": "### Page 1\nPart"}]}, "finishReason": "MAX_TOKENS"}]}
+    assert translate._reply_text(reply).endswith(translate.TRUNCATED)
+
+
+def test_translations_migration_keeps_rows(tmp_path):
+    c = db.connect(tmp_path / "old.db")
+    c.execute(f"PRAGMA user_version = {len(db.MIGRATIONS) - 1}")
+    for sql in db.MIGRATIONS[:-1]:
+        c.executescript(sql)
+    c.execute("INSERT INTO books (path, title) VALUES ('a.pdf', 'A')")
+    c.execute("INSERT INTO translations (book_id, page, model, body, created_at) VALUES (1, 7, 'm', 'Seven', 'now')")
+    c.commit()
+    db.migrate(c)
+    assert db.get_translation(c, 1, 7)["body"] == "Seven"
+    assert c.execute("SELECT page_end FROM translations").fetchone()[0] == 7
+    c.close()

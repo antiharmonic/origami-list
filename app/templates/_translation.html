@@ -1,0 +1,49 @@
+{% if not enabled and not row and not article %}
+<p class="hint">Translation isn't set up. Add a free Gemini API key to <code>.env</code> as <code>GEMINI_API_KEY=…</code> and restart (see the README).</p>
+{% else %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if row and article %}
+<div class="tr-switch" role="group" aria-label="Which translation">
+  <button type="button" data-tr-view="page" class="{{ 'primary' if view == 'page' }}">This page</button>
+  <button type="button" data-tr-view="article" class="{{ 'primary' if view == 'article' }}">Article, pp.{{ article.page }}–{{ article.page_end }}</button>
+</div>
+{% endif %}
+
+{% if article %}
+<div class="tr-view" data-view="article"{% if row and view != "article" %} hidden{% endif %}>
+  <div class="translation tr-article" data-start="{{ article.page }}" data-end="{{ article.page_end }}">{{ article_html }}</div>
+  <p class="hint">Article translation, pp.{{ article.page }}–{{ article.page_end }}, {{ article.created_at[:10] }} ({{ article.model }}).
+    {% if enabled %}<button type="button" class="linkish" hx-post="/api/translate-range"
+            hx-vals='{{ {"path": path, "start": article.page, "end": article.page_end, "page": page} | tojson }}'
+            hx-target="#translate-body" hx-swap="innerHTML" hx-indicator="#translate-busy"
+            hx-confirm="Translate pages {{ article.page }}–{{ article.page_end }} again? This replaces the saved translation.">Retranslate range</button>{% endif %}</p>
+</div>
+{% endif %}
+
+{% if row %}
+<div class="tr-view" data-view="page"{% if article and view != "page" %} hidden{% endif %}>
+  <div class="translation">{{ html }}</div>
+  <p class="hint">Translated {{ row.created_at[:10] }} ({{ row.model }}).
+    {% if enabled %}<button type="button" class="linkish" hx-post="/api/translate" hx-vals='{{ {"path": path, "page": page} | tojson }}'
+            hx-target="#translate-body" hx-swap="innerHTML" hx-indicator="#translate-busy"
+            hx-confirm="Translate page {{ page }} again? This replaces the saved translation.">Retranslate</button>{% endif %}</p>
+</div>
+{% endif %}
+
+{% if enabled %}
+{% if not row %}
+<p class="hint">Page {{ page }} {{ "has no translation of its own" if article else "hasn't been translated yet" }}.</p>
+<button type="button" hx-post="/api/translate" hx-vals='{{ {"path": path, "page": page} | tojson }}'
+        hx-target="#translate-body" hx-swap="innerHTML" hx-indicator="#translate-busy">Translate this page</button>
+{% endif %}
+<form class="tr-range-form" hx-post="/api/translate-range" hx-target="#translate-body" hx-swap="innerHTML" hx-indicator="#translate-busy">
+  <input type="hidden" name="path" value="{{ path }}">
+  <input type="hidden" name="page" value="{{ page }}">
+  <span>Article: pages</span>
+  <input name="start" type="number" min="1" value="{{ page }}" aria-label="First page" required>
+  <span>–</span>
+  <input name="end" type="number" min="2" value="{{ page + 3 }}" aria-label="Last page" required>
+  <button type="submit" title="Translate up to {{ max_range }} pages together, as one text">Translate pages</button>
+</form>
+{% endif %}
+{% endif %}

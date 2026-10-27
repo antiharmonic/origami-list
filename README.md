@@ -22,6 +22,15 @@ The **Glossary** (Import / export page) maps Japanese to English: searching "rhi
 ## Cataloguing a book from its contents page
 Once a book has been read, its page shows **Suggested from contents**: the entries of its table of contents, with their PDF pages (the offset between printed and PDF page numbers is detected where it can be, and **Use as book offset** saves it). ✓ means the name was also found on that page. Fix a name if needed and click **Add**, or ✕ for front matter and essays; **Add all ✓** adds every verified one, using quick add's status and studies. When you're done with a book, **Mark fully indexed** hides the suggestions. Japanese contents get glossary names ("Owl (フクロウ)") and known designers split off where possible, but expect to edit those. Books without a usable contents page (most magazines, picture-grid layouts) get no suggestions.
 
+## Translating pages
+On a book page, open **Translate** to translate the page you're looking at from Japanese, step by step for diagrams (with a short note where the text adds something the arrows don't) or as prose for articles. Select text in **Page text** and use **Translate selection** for a single caption or paragraph. For a multi-page article, use **Article: pages N – M** (up to 8 pages): the pages go to Gemini together, so sentences that cross a page break and names stay consistent, and it's one request instead of several. On any page in that range the article translation is shown, scrolled to that page's part; if a page also has its own translation, a switch picks between them. Each page and passage is translated once and saved in `origami.db` (so it's in the backup); **Retranslate** replaces a saved one.
+
+It uses Google's Gemini API on the free tier, sending the page image (plus its OCR text as a hint). To set it up, create a key at https://aistudio.google.com/apikey, put it in a `.env` file next to `compose.yaml`:
+```
+GEMINI_API_KEY=your-key
+```
+then run `docker compose up -d`. `.env` is gitignored. It uses the current Gemini Flash model and falls back to Flash-Lite when Flash is busy or out of quota (`GEMINI_MODEL=` overrides the first choice); the model used is shown under each translation. On the free tier there's a per-minute and per-day limit, and Google may use what's sent to improve its products.
+
 ## Fold photos
 To add a photo of your fold, pick a file on the model form, drop one onto the photo field, or just paste an image (Ctrl+V) anywhere on the form. It's saved with the model when you click Save.
 

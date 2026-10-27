@@ -404,3 +404,18 @@ button.linkish { border: none; background: none; padding: 0; color: var(--accent
 .glossary-row { display: flex; gap: .4rem; align-items: center; }
 .glossary-row input { flex: 1; min-width: 0; }
 .chip.active { border-color: currentColor; font-weight: 600; }
+
+/* Translations (book page) */
+.translation { max-height: 50vh; overflow-y: auto; padding: .5rem .7rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font-size: .92rem; line-height: 1.45; }
+.translation p, .translation ul, .translation ol { margin: .35rem 0; }
+.translation ul, .translation ol { padding-left: 1.2rem; }
+#selection-translation:not(:empty) { margin-top: .5rem; }
+#translate-busy { display: none; }
+#translate-busy.htmx-request { display: block; }
+.error { color: var(--accent); }
+.tr-switch { display: flex; gap: .3rem; margin-bottom: .5rem; }
+.tr-switch button { font-size: .85rem; padding: .2rem .55rem; }
+.tr-article h3 { margin: .8rem 0 .3rem; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-top: 1px solid var(--border); padding-top: .4rem; }
+.tr-article h3:first-child { margin-top: 0; border-top: none; padding-top: 0; }
+.tr-range-form { display: flex; gap: .35rem; align-items: center; flex-wrap: wrap; margin-top: .6rem; font-size: .9rem; }
+.tr-range-form input[type=number] { width: 4.5rem; }

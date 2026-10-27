@@ -62,8 +62,17 @@
       <div class="buttons">
         <button type="button" data-use="qa-name" title="Put the selected text in Name">Use as name</button>
         <button type="button" data-use="qa-designer" title="Put the selected text in Designer">Use as designer</button>
+        {% if translate_enabled %}<button type="button" id="translate-selection" title="Translate the selected text">Translate selection</button>{% endif %}
       </div>
+      <div id="selection-translation"></div>
       <p class="hint">Text read from the page (or OCR'd). Select a title or name, then use a button.</p>
+    </details>
+
+    <details id="translate" class="book-section">
+      <summary><h2>Translate</h2></summary>
+      <div id="translate-body"><p class="hint">Loading…</p></div>
+      <p id="translate-busy" class="hint htmx-indicator">Translating… (a page takes 10–40 seconds, an article 1–2 minutes)</p>
+      <p class="hint">Japanese → English from the page image, by Gemini; saved, so each page is only translated once.</p>
     </details>
     {% endif %}
 
@@ -199,9 +208,52 @@
     }
     pageText.addEventListener("toggle", loadPageText);
 
+    var translateBox = document.getElementById("translate"), translateBody = document.getElementById("translate-body");
+    var translateTimer = null, translateView = "";
+    function loadTranslation() {
+      if (!translateBox.open || !current) return;
+      clearTimeout(translateTimer);
+      translateTimer = setTimeout(function () {
+        htmx.ajax("GET", "/api/translation?" + new URLSearchParams({ path: {{ b.path | tojson }}, page: current, view: translateView }),
+                  { target: "#translate-body", swap: "innerHTML" });
+      }, 300);
+    }
+    translateBox.addEventListener("toggle", loadTranslation);
+    // In an article translation, scroll its box to the "Page N" heading of the viewer's page.
+    function scrollArticle() {
+      var box = translateBody.querySelector(".tr-article"), heading = box && box.querySelector("#tp-" + current);
+      if (heading) box.scrollTop = heading.offsetTop - box.offsetTop;
+    }
+    translateBody.addEventListener("htmx:afterSettle", scrollArticle);
+    translateBody.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-tr-view]");
+      if (!btn) return;
+      translateView = btn.dataset.trView;
+      translateBody.querySelectorAll("[data-tr-view]").forEach(function (b) { b.classList.toggle("primary", b === btn); });
+      translateBody.querySelectorAll(".tr-view").forEach(function (v) { v.hidden = v.dataset.view !== translateView; });
+      scrollArticle();
+    });
+    // Keep an article range to at most {{ max_range }} pages.
+    translateBody.addEventListener("input", function (e) {
+      var form = e.target.closest(".tr-range-form");
+      if (!form) return;
+      var start = Number(form.start.value) || 1, end = Number(form.end.value) || start;
+      if (e.target === form.start) form.end.value = Math.max(Math.min(end, start + {{ max_range }} - 1), start + 1);
+      else if (end - start + 1 > {{ max_range }}) form.start.value = end - {{ max_range }} + 1;
+    });
+
+    var selButton = document.getElementById("translate-selection");
+    if (selButton) selButton.addEventListener("click", function () {
+      var picked = window.getSelection().toString().trim();
+      if (!picked) return;
+      document.getElementById("selection-translation").innerHTML = '<p class="hint">Translating…</p>';
+      htmx.ajax("POST", "/api/translate-text", { target: "#selection-translation", swap: "innerHTML", values: { text: picked } });
+    });
+
     function showPage(n) {
       current = n;
       loadPageText();
+      loadTranslation();
       if (document.activeElement !== pageInput) pageInput.value = n;
       native.href = pdf + "#page=" + n;
       highlight();
@@ -227,7 +279,7 @@
     document.body.addEventListener("htmx:afterSettle", highlight);
 
     // Keep the text selection when pressing a "Use as" button.
-    document.addEventListener("mousedown", function (e) { if (e.target.closest("[data-use]")) e.preventDefault(); });
+    document.addEventListener("mousedown", function (e) { if (e.target.closest("[data-use], #translate-selection")) e.preventDefault(); });
     // "Use as name/designer": the text selected in Page text goes into the field (which then offers a suggestion).
     document.addEventListener("click", function (e) {
       var use = e.target.closest("[data-use]");

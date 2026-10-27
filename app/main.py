@@ -1,5 +1,7 @@
 import csv
 import io
+import re
+import subprocess
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -10,8 +12,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
+from markupsafe import Markup, escape
 
-from . import books, config, db, import_csv, ocr, thumbs, toc
+from . import books, config, db, import_csv, ocr, thumbs, toc, translate
 
 APP_DIR = Path(__file__).parent
 PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
@@ -509,7 +512,8 @@ def library_book(request: Request, path: str, conn=Depends(get_conn), oconn=Depe
     name = params.get("name", "")
     return templates.TemplateResponse(request, "book.html", {
         "b": b, "models": models, "saved": bool(params.get("saved")), "relinked": bool(params.get("relinked")),
-        "page": _opt_int(params.get("page", "")), "name": name,
+        "page": _opt_int(params.get("page", "")), "name": name, "translate_enabled": translate.enabled(),
+        "max_range": translate.MAX_RANGE,
         "name_suggestion": db.suggest(conn, "subject", name) if name else None,
         "ocr": _ocr_book_status(conn, oconn, path),
         **_suggestions_ctx(conn, b),
@@ -819,6 +823,96 @@ def page_text(request: Request, path: str, page: int, oconn=Depends(get_ocr)):
     if not books.resolve(path):
         raise HTTPException(404)
     return templates.TemplateResponse(request, "_page_text.html", {"row": ocr.get_page(oconn, path, page), "page": page})
+
+
+_PAGE_HEADING = re.compile(r"<h3>Page (\d+)</h3>")
+
+
+def _translation_response(request, conn, path, page, error=None, view=None):
+    """The Translate section for `page`: its own translation and/or the article translation covering it."""
+    book = db.get_book_by_path(conn, path)
+    row = db.get_translation(conn, book["id"], page) if book else None
+    article = db.get_range_translation(conn, book["id"], page) if book else None
+    article_html = None
+    if article:
+        # Anchors on the "### Page N" headings, so the box can scroll to the viewer's page.
+        article_html = Markup(_PAGE_HEADING.sub(r'<h3 id="tp-\1">Page \1</h3>', MARKDOWN.render(article["body"])))
+    return templates.TemplateResponse(request, "_translation.html", {
+        "path": path, "page": page, "row": row, "error": error, "enabled": translate.enabled(),
+        "html": Markup(MARKDOWN.render(row["body"])) if row else None,
+        "article": article, "article_html": article_html,
+        "view": view or ("article" if article else "page"), "max_range": translate.MAX_RANGE,
+    })
+
+
+@app.get("/api/translation", response_class=HTMLResponse)
+def page_translation(request: Request, path: str, page: int, view: str = "", conn=Depends(get_conn)):
+    """The cached translation(s) of a page, or the buttons to make one."""
+    if not books.resolve(path):
+        raise HTTPException(404)
+    return _translation_response(request, conn, path, page, view=view if view in ("page", "article") else None)
+
+
+@app.post("/api/translate", response_class=HTMLResponse)
+def translate_page(request: Request, path: str = Form(...), page: int = Form(...), conn=Depends(get_conn),
+                   oconn=Depends(get_ocr)):
+    """Translate one page with Gemini (from its image) and cache it; posting again retranslates."""
+    if not books.resolve(path) or page < 1:
+        raise HTTPException(404)
+    ocr_row = ocr.get_page(oconn, path, page)
+    ocr_text = ocr_row["text"] if ocr_row else ""
+    title = _book_entry_or_404(conn, path)["title"]
+    try:
+        image = translate.render_page(path, page)
+        body, model = translate.call(translate.page_request(image, title, page, ocr_text, db.designers_in(conn, ocr_text)))
+    except (translate.TranslateError, subprocess.SubprocessError) as e:
+        return _translation_response(request, conn, path, page, error=str(e), view="page")
+    db.save_translation(conn, body, model, book_id=db.get_or_create_book(conn, path), page=page)
+    return _translation_response(request, conn, path, page, view="page")
+
+
+@app.post("/api/translate-range", response_class=HTMLResponse)
+def translate_range(request: Request, path: str = Form(...), start: int = Form(...), end: int = Form(...),
+                    page: int = Form(0), conn=Depends(get_conn), oconn=Depends(get_ocr)):
+    """Translate pages start..end (an article) in one Gemini request, cached as one translation."""
+    full = books.resolve(path)
+    if not full:
+        raise HTTPException(404)
+    problem = None
+    if start < 1 or end <= start or end - start + 1 > translate.MAX_RANGE:
+        problem = f"Pick 2 to {translate.MAX_RANGE} pages, first page first."
+    elif end > (count := ocr.page_count(full)):
+        problem = f"This book has {count} pages."
+    if problem:
+        return _translation_response(request, conn, path, page or max(start, 1), error=problem)
+    page = page if start <= page <= end else start
+    texts = [(r["text"] if (r := ocr.get_page(oconn, path, p)) else "") for p in range(start, end + 1)]
+    title = _book_entry_or_404(conn, path)["title"]
+    try:
+        images = translate.render_pages(path, start, end)
+        body, model = translate.call(translate.range_request(images, title, start, texts, db.designers_in(conn, " ".join(texts))),
+                                     timeout=translate.RANGE_TIMEOUT)
+    except (translate.TranslateError, subprocess.SubprocessError) as e:
+        return _translation_response(request, conn, path, page, error=str(e))
+    db.save_translation(conn, body, model, book_id=db.get_or_create_book(conn, path), page=start, page_end=end)
+    return _translation_response(request, conn, path, page, view="article")
+
+
+@app.post("/api/translate-text", response_class=HTMLResponse)
+def translate_text(text: str = Form(...), conn=Depends(get_conn)):
+    """Translate a passage selected from Page text (cached by its text)."""
+    text = text.strip()[:4000]
+    if not text:
+        return HTMLResponse('<p class="hint">Select some text first.</p>')
+    row = db.get_translation(conn, text=text)
+    if row is None:
+        try:
+            body, model = translate.call(translate.text_request(text))
+        except translate.TranslateError as e:
+            return HTMLResponse(f'<p class="error">{escape(str(e))}</p>')
+        db.save_translation(conn, body, model, text=text)
+        row = db.get_translation(conn, text=text)
+    return HTMLResponse(f'<div class="translation">{MARKDOWN.render(row["body"])}</div>')
 
 
 @app.post("/ocr/pause")

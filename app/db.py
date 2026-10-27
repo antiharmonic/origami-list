@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import re
 from collections import Counter
 import sqlite3
@@ -110,6 +111,38 @@ MIGRATIONS = [
         UNIQUE (book_id, name, printed)
     );
     """,
+    """
+    CREATE TABLE translations (
+        id INTEGER PRIMARY KEY,
+        book_id INTEGER REFERENCES books(id) ON DELETE CASCADE,
+        page INTEGER,
+        text_hash TEXT,
+        model TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (book_id, page),
+        UNIQUE (text_hash)
+    );
+    """,
+    # Article translations cover a page range: page..page_end (page_end = page for one page).
+    """
+    CREATE TABLE translations_new (
+        id INTEGER PRIMARY KEY,
+        book_id INTEGER REFERENCES books(id) ON DELETE CASCADE,
+        page INTEGER,
+        page_end INTEGER,
+        text_hash TEXT,
+        model TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (book_id, page, page_end),
+        UNIQUE (text_hash)
+    );
+    INSERT INTO translations_new (id, book_id, page, page_end, text_hash, model, body, created_at)
+        SELECT id, book_id, page, page, text_hash, model, body, created_at FROM translations;
+    DROP TABLE translations;
+    ALTER TABLE translations_new RENAME TO translations;
+    """,
 ]
 
 # Below this gap between neighbours, positions are renumbered 1..N.
@@ -201,6 +234,15 @@ def relink_book(conn, book_id, target, shift=0):
                          (shift, book_id))
             # Suggested pages are printed page + offset, so the detected offset moves too.
             conn.execute("UPDATE books SET toc_offset = toc_offset + ? WHERE id = ?", (shift, book_id))
+            # Shift in the direction that can't collide with a not-yet-moved row on the UNIQUE (book_id, page).
+            order = "DESC" if shift > 0 else "ASC"
+            for tid, page in conn.execute(f"""SELECT id, page FROM translations WHERE book_id = ?
+                                              ORDER BY page {order}, page_end {order}""", (book_id,)).fetchall():
+                if page + shift < 1:
+                    conn.execute("DELETE FROM translations WHERE id = ?", (tid,))
+                else:
+                    conn.execute("UPDATE translations SET page = page + ?, page_end = page_end + ? WHERE id = ?",
+                                 (shift, shift, tid))
         offset = old["page_offset"] + shift
         if existing is None:
             # A title still at its filename-derived default follows the new file.
@@ -210,6 +252,7 @@ def relink_book(conn, book_id, target, shift=0):
             return book_id
         conn.execute("UPDATE models SET book_id = ? WHERE book_id = ?", (existing["id"], book_id))
         conn.execute("UPDATE OR IGNORE suggestions SET book_id = ? WHERE book_id = ?", (existing["id"], book_id))
+        conn.execute("UPDATE OR IGNORE translations SET book_id = ? WHERE book_id = ?", (existing["id"], book_id))
         conn.execute("""
             UPDATE books SET
                 designers = CASE WHEN designers = '' THEN ? ELSE designers END,
@@ -603,3 +646,49 @@ def set_suggestion_state(conn, suggestion_ids, state):
 def set_indexed(conn, book_id, indexed):
     with conn:
         conn.execute("UPDATE books SET indexed = ? WHERE id = ?", (int(bool(indexed)), book_id))
+
+
+# --- translations (cached forever; see app/translate.py) ---
+
+def text_hash(text):
+    return hashlib.sha1(_norm(text).encode()).hexdigest()
+
+
+def get_translation(conn, book_id=None, page=None, text=None):
+    """A cached single-page translation (book_id + page) or passage translation (text), or None."""
+    if text is not None:
+        return conn.execute("SELECT * FROM translations WHERE text_hash = ?", (text_hash(text),)).fetchone()
+    if book_id is None:
+        return None
+    return conn.execute("SELECT * FROM translations WHERE book_id = ? AND page = ? AND page_end = ?",
+                        (book_id, page, page)).fetchone()
+
+
+def get_range_translation(conn, book_id, page):
+    """The newest article (multi-page) translation covering `page`, or None."""
+    if book_id is None:
+        return None
+    return conn.execute("""SELECT * FROM translations WHERE book_id = ? AND page <= ? AND page_end >= ? AND page_end > page
+                           ORDER BY created_at DESC, id DESC LIMIT 1""", (book_id, page, page)).fetchone()
+
+
+def save_translation(conn, body, model, book_id=None, page=None, text=None, page_end=None):
+    """Store (or replace, for Retranslate) a translation: a passage (text), one page, or pages page..page_end."""
+    with conn:
+        if text is not None:
+            conn.execute("""INSERT INTO translations (text_hash, model, body, created_at) VALUES (?, ?, ?, ?)
+                            ON CONFLICT (text_hash) DO UPDATE SET model = excluded.model, body = excluded.body,
+                            created_at = excluded.created_at""", (text_hash(text), model, body, _now()))
+        else:
+            conn.execute("""INSERT INTO translations (book_id, page, page_end, model, body, created_at) VALUES (?, ?, ?, ?, ?, ?)
+                            ON CONFLICT (book_id, page, page_end) DO UPDATE SET model = excluded.model, body = excluded.body,
+                            created_at = excluded.created_at""",
+                         (book_id, page, page_end or page, model, body, _now()))
+
+
+def designers_in(conn, text):
+    """[(ja, en)] for glossary designers whose Japanese name appears in `text` (to keep translations consistent)."""
+    text = (text or "").replace(" ", "")
+    return [(r["ja"], r["en"]) for r in conn.execute(
+        "SELECT ja, en FROM glossary WHERE kind = 'designer' AND deleted = 0 ORDER BY ja")
+        if JAPANESE.search(r["ja"]) and r["ja"] in text]
