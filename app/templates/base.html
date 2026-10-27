@@ -15,6 +15,9 @@
       {% include "_todo_count.html" %}
     </div>
     <nav>
+      <form method="get" action="/search" class="nav-search" role="search">
+        <input type="search" name="q" placeholder="Search books…" aria-label="Search your books" value="{{ request.query_params.get('q', '') if request.url.path == '/search' else '' }}">
+      </form>
       <a href="/models/new" class="button primary">+ Add model</a>
       <a href="/library">Library</a>
       <a href="/studies">Studies</a>

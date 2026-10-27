@@ -1,0 +1,45 @@
+<section id="suggestions"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if suggestions %}
+  <details class="book-section" open>
+    <summary><h2>Suggested from contents ({{ suggestions | length }})</h2></summary>
+    <p class="hint">
+      {% if b.page_offset %}Pages use this book's offset ({{ "%+d" | format(b.page_offset) }}).
+      {% elif detected_offset %}Pages offset {{ "%+d" | format(detected_offset) }} from the printed numbers (detected).
+        <button type="button" class="linkish" hx-post="/library/book/offset" hx-vals='{{ {"path": b.path} | tojson }}'
+                hx-target="#suggestions" hx-swap="outerHTML" title="Also use it for printed page numbers in the model form">Use as book offset</button>
+      {% else %}Pages are the printed numbers, unverified: check them in the viewer.{% endif %}
+      ✓ means the name was found on that page.
+    </p>
+    <ul class="suggestions">
+      {% for s in suggestions %}
+      <li data-page="{{ s.page }}">
+        <form class="suggestion-row" hx-post="/library/book/models" hx-target="#book-models" hx-swap="outerHTML"
+              hx-include="#quick-add [name=status], #study-chips [name=study]">
+          <input type="hidden" name="path" value="{{ b.path }}">
+          <input type="hidden" name="page" value="{{ s.page }}">
+          <input type="hidden" name="suggestion_id" value="{{ s.id }}">
+          <button type="button" class="page-no" data-goto="{{ s.page }}" title="Show this page">p.{{ s.page }}</button>
+          <span class="verified" title="{{ 'Name found on this page' if s.verified else 'Not found on this page: check it' }}">{{ "✓" if s.verified else "?" }}</span>
+          <input name="name" value="{{ s.name }}" required aria-label="Name">
+          <input name="designer" value="{{ s.designer }}" placeholder="Designer" aria-label="Designer">
+          <button type="submit" title="Add to the list (with quick add's status and studies)">Add</button>
+          <button type="button" title="Not a model, or not one I want" hx-post="/library/book/suggestions/dismiss"
+                  hx-vals='{{ {"path": b.path, "suggestion_id": s.id} | tojson }}'
+                  hx-target="#suggestions" hx-swap="outerHTML">✕</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="buttons">
+      {% set verified = suggestions | selectattr("verified") | list %}
+      {% if verified %}
+      <button type="button" hx-post="/library/book/suggestions/add-verified" hx-vals='{{ {"path": b.path} | tojson }}'
+              hx-include="#quick-add [name=status], #study-chips [name=study]" hx-target="#book-models" hx-swap="outerHTML"
+              hx-confirm="Add all {{ verified | length }} ✓ suggestions to the list?">Add all ✓ ({{ verified | length }})</button>
+      {% endif %}
+      <button type="button" hx-post="/library/book/suggestions/dismiss" hx-vals='{{ {"path": b.path, "all": 1} | tojson }}'
+              hx-target="#suggestions" hx-swap="outerHTML" hx-confirm="Dismiss all {{ suggestions | length }} suggestions?">Dismiss all</button>
+    </div>
+  </details>
+  {% endif %}
+</section>

@@ -10,7 +10,10 @@
 - [ ] Viewer v2: "use selection as name" (when the PDF has a text layer), "use this page as cover", open the list's Diagrams links in the viewer
 - [ ] Crop thumbnails to the model image instead of the whole page
 - [ ] Pre-fill model entries from a PDF's outline/bookmarks where books have one
-- [ ] Library: model-name index per book (typed list, or extracted from PDF outlines/TOC) so models are searchable before they're added
+- [ ] Library: filter for fully indexed / not yet indexed books (once indexing is under way)
+- [ ] Contents suggestions: picture-grid layouts ("Page 29 Page 33" under a row of names, e.g. Montroll), per-entry designers in anthologies, two-column Japanese contents
+- [ ] Search: let a result be marked "not a model" (or hide noisy books) if results get cluttered
+- [ ] Glossary: review the seeded designer kanji; grow the subject list as needed
 - [ ] Library: editor field and structured tags (designers/notes are free text for now)
 - [ ] Library: overall complexity per book
 - [ ] External integration with Gilad's Origami Database (giladorigami.com):

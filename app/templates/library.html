@@ -33,6 +33,7 @@
   <span id="library-count" class="view-count">Showing {{ entries | length }} of {{ total }}</span>
 </form>
 {% include "_library_summary.html" %}
+{% set p = ocr_progress %}{% set back = "/library" %}{% include "_ocr_progress.html" %}
 
 {% if missing %}
 <details class="panel missing-books" open>

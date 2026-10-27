@@ -1,0 +1,7 @@
+{% if row and row.text.strip() %}
+<pre class="page-text-body" title="Select text, then use the buttons below">{{ row.text.strip() }}</pre>
+{% elif row %}
+<p class="hint">No text found on page {{ page }}.</p>
+{% else %}
+<p class="hint">Page {{ page }} hasn't been read yet.</p>
+{% endif %}

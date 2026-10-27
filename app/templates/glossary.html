@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Glossary · Origami List{% endblock %}
+{% block content %}
+<h1>Glossary</h1>
+<p class="hint">Japanese → English. Searching one also searches the other, and adding a model from a Japanese book
+  suggests “Rhinoceros (サイ)” or “Fumiaki Kawahata”. Saving a model named like “Rhinoceros (サイ)” teaches it new subjects.</p>
+<div class="chips">
+  <a class="chip{{ ' active' if kind == 'subject' }}" href="/glossary?kind=subject">Subjects</a>
+  <a class="chip{{ ' active' if kind == 'designer' }}" href="/glossary?kind=designer">Designers</a>
+</div>
+
+<form method="post" action="/glossary" class="glossary-add">
+  <input type="hidden" name="kind" value="{{ kind }}">
+  <input name="ja" required placeholder="{{ '川畑文昭 or Kawahata Fumiaki' if kind == 'designer' else 'サイ' }}" aria-label="Japanese">
+  <span>→</span>
+  <input name="en" required placeholder="{{ 'Fumiaki Kawahata' if kind == 'designer' else 'Rhinoceros' }}" aria-label="English">
+  <button type="submit" class="primary">Add</button>
+</form>
+
+<form method="get" action="/glossary" class="glossary-filter">
+  <input type="hidden" name="kind" value="{{ kind }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="Filter…" hx-get="/glossary" hx-trigger="input changed delay:250ms"
+         hx-include="closest form" hx-select="#glossary-list" hx-target="#glossary-list" hx-swap="outerHTML">
+</form>
+
+<table id="glossary-list" class="glossary">
+  <thead><tr><th>Japanese</th><th>English</th><th></th></tr></thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td colspan="2">
+        <form method="post" action="/glossary" class="glossary-row">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <input type="hidden" name="entry_id" value="{{ e.id }}">
+          <input name="ja" value="{{ e.ja }}" required aria-label="Japanese">
+          <input name="en" value="{{ e.en }}" required aria-label="English">
+          <button type="submit">Save</button>
+          {% if e.source != "user" %}<span class="badge">{{ e.source }}</span>{% endif %}
+        </form>
+      </td>
+      <td>
+        <form method="post" action="/glossary/{{ e.id }}/delete">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <button type="submit" class="danger" title="Delete">×</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="hint">Nothing here{{ " matching “" ~ q ~ "”" if q }}.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

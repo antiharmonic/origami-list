@@ -15,12 +15,19 @@
 
     {% if not b.missing %}
     {% include "_book_status.html" %}
+    {% include "_book_indexed.html" %}
 
     <form id="quick-add" class="model-form quick-add" hx-post="/library/book/models" hx-target="#book-models" hx-swap="outerHTML">
       <h2>Add a model</h2>
       <input type="hidden" name="path" value="{{ b.path }}">
-      <label>Name <input id="qa-name" name="name" required autocomplete="off"></label>
-      <label>Designer <input name="designer" value="{{ b.designers if ',' not in b.designers else '' }}"></label>
+      <label>Name <input id="qa-name" name="name" required autocomplete="off" value="{{ name }}"
+                         hx-get="/api/suggest" hx-trigger="change, input changed delay:600ms" hx-target="#qa-name-suggest" hx-swap="innerHTML"
+                         hx-vals='{"kind": "subject", "target": "qa-name"}'></label>
+      <div id="qa-name-suggest" class="suggest-slot">{% if name_suggestion %}{% with value=name_suggestion, target="qa-name" %}{% include "_suggestion.html" %}{% endwith %}{% endif %}</div>
+      <label>Designer <input id="qa-designer" name="designer" autocomplete="off" value="{{ b.designers if ',' not in b.designers else '' }}"
+                             hx-get="/api/suggest" hx-trigger="change, input changed delay:600ms" hx-target="#qa-designer-suggest" hx-swap="innerHTML"
+                             hx-vals='{"kind": "designer", "target": "qa-designer"}'></label>
+      <div id="qa-designer-suggest" class="suggest-slot"></div>
       <div class="row">
         <label title="The PDF page; it follows the viewer, or type one">Page <input id="qa-page" name="page" type="number" min="1" value="{{ page or '' }}"></label>
         <label>Complexity
@@ -48,9 +55,35 @@
     </form>
     {% endif %}
 
+    {% if not b.missing %}
+    <details id="page-text" class="book-section">
+      <summary><h2>Page text</h2></summary>
+      <div id="page-text-body" class="page-text"><p class="hint">Loading…</p></div>
+      <div class="buttons">
+        <button type="button" data-use="qa-name" title="Put the selected text in Name">Use as name</button>
+        <button type="button" data-use="qa-designer" title="Put the selected text in Designer">Use as designer</button>
+      </div>
+      <p class="hint">Text read from the page (or OCR'd). Select a title or name, then use a button.</p>
+    </details>
+    {% endif %}
+
     {% include "_book_models.html" %}
+    {% include "_suggestions.html" %}
 
     {% if not b.missing %}
+    <div class="hint ocr-status">
+      {% if ocr.state == "done" %}Text search: every page read ✓
+      {% elif ocr.state == "running" %}Text search: read {{ ocr.done_pages }} of {{ ocr.pages }} pages…
+      {% elif ocr.state == "error" %}Text search: couldn't read this file
+      {% else %}Text search: queued{% if ocr.position %}, #{{ ocr.position }} in line{% endif %}
+        {% if ocr.position != 1 %}
+        <form method="post" action="/ocr/priority" class="inline-form">
+          <input type="hidden" name="path" value="{{ b.path }}">
+          <button type="submit">Read this book next</button>
+        </form>
+        {% endif %}
+      {% endif %}
+    </div>
     <p class="hint"><a id="open-native" href="{{ pdf }}{% if page %}#page={{ page }}{% endif %}" target="_blank" rel="noopener">Open in Firefox's viewer</a></p>
     {% endif %}
 
@@ -150,13 +183,25 @@
     var viewer = null, current = Number(pageInput.value) || null;
 
     function highlight() {
-      document.querySelectorAll("#book-models li[data-page]").forEach(function (li) {
+      document.querySelectorAll("#book-models li[data-page], #suggestions li[data-page]").forEach(function (li) {
         li.classList.toggle("here", Number(li.dataset.page) === current);
       });
     }
 
+    var pageText = document.getElementById("page-text"), textTimer = null;
+    function loadPageText() {
+      if (!pageText.open || !current) return;
+      clearTimeout(textTimer);
+      textTimer = setTimeout(function () {
+        htmx.ajax("GET", "/api/page-text?" + new URLSearchParams({ path: {{ b.path | tojson }}, page: current }),
+                  { target: "#page-text-body", swap: "innerHTML" });
+      }, 300);
+    }
+    pageText.addEventListener("toggle", loadPageText);
+
     function showPage(n) {
       current = n;
+      loadPageText();
       if (document.activeElement !== pageInput) pageInput.value = n;
       native.href = pdf + "#page=" + n;
       highlight();
@@ -180,10 +225,32 @@
 
     // After an add: clear the per-model fields, keep designer/status/studies, ready for the next one.
     document.body.addEventListener("htmx:afterSettle", highlight);
+
+    // Keep the text selection when pressing a "Use as" button.
+    document.addEventListener("mousedown", function (e) { if (e.target.closest("[data-use]")) e.preventDefault(); });
+    // "Use as name/designer": the text selected in Page text goes into the field (which then offers a suggestion).
+    document.addEventListener("click", function (e) {
+      var use = e.target.closest("[data-use]");
+      if (use) {
+        var picked = window.getSelection().toString().replace(/\s+/g, " ").trim();
+        if (!picked) return;
+        var field = document.getElementById(use.dataset.use);
+        field.value = picked;
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+        field.focus();
+        return;
+      }
+      var chip = e.target.closest(".suggestion");
+      if (chip) {
+        document.getElementById(chip.dataset.target).value = chip.dataset.value;
+        chip.remove();
+      }
+    });
     document.getElementById("quick-add").addEventListener("htmx:afterRequest", function (e) {
       if (!e.detail.successful || e.detail.elt !== this) return;
       var name = document.getElementById("qa-name");
       name.value = "";
+      document.querySelectorAll(".suggest-slot").forEach(function (s) { s.innerHTML = ""; });
       this.querySelector("[name=complexity]").value = "";
       name.focus();
     });

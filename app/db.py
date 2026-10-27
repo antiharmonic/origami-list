@@ -1,5 +1,9 @@
+import csv
+import re
+from collections import Counter
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 from . import config
 from .books import clean_title
@@ -79,6 +83,32 @@ MIGRATIONS = [
         PRIMARY KEY (model_id, study_id)
     );
     CREATE INDEX model_studies_study ON model_studies(study_id);
+    """,
+    """
+    CREATE TABLE glossary (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('subject', 'designer')),
+        ja TEXT NOT NULL,
+        en TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'user',
+        deleted INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (kind, ja)
+    );
+    """,
+    """
+    ALTER TABLE books ADD COLUMN indexed INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE books ADD COLUMN toc_version INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE books ADD COLUMN toc_offset INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE suggestions (
+        id INTEGER PRIMARY KEY,
+        book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        name TEXT NOT NULL COLLATE NOCASE,
+        designer TEXT NOT NULL DEFAULT '',
+        printed INTEGER NOT NULL,
+        verified INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'added', 'dismissed')),
+        UNIQUE (book_id, name, printed)
+    );
     """,
 ]
 
@@ -169,6 +199,8 @@ def relink_book(conn, book_id, target, shift=0):
         if shift:
             conn.execute("UPDATE models SET page = MAX(page + ?, 1) WHERE book_id = ? AND page IS NOT NULL",
                          (shift, book_id))
+            # Suggested pages are printed page + offset, so the detected offset moves too.
+            conn.execute("UPDATE books SET toc_offset = toc_offset + ? WHERE id = ?", (shift, book_id))
         offset = old["page_offset"] + shift
         if existing is None:
             # A title still at its filename-derived default follows the new file.
@@ -177,6 +209,7 @@ def relink_book(conn, book_id, target, shift=0):
                          (target, title, offset, book_id))
             return book_id
         conn.execute("UPDATE models SET book_id = ? WHERE book_id = ?", (existing["id"], book_id))
+        conn.execute("UPDATE OR IGNORE suggestions SET book_id = ? WHERE book_id = ?", (existing["id"], book_id))
         conn.execute("""
             UPDATE books SET
                 designers = CASE WHEN designers = '' THEN ? ELSE designers END,
@@ -184,9 +217,10 @@ def relink_book(conn, book_id, target, shift=0):
                 page_offset = CASE WHEN page_offset = 0 THEN ? ELSE page_offset END,
                 status = CASE WHEN status = 'unexplored' THEN ? ELSE status END,
                 starred = MAX(starred, ?),
+                indexed = MAX(indexed, ?),
                 hidden = 0
             WHERE id = ?""",
-            (old["designers"], old["notes"], offset, old["status"], old["starred"], existing["id"]))
+            (old["designers"], old["notes"], offset, old["status"], old["starred"], old["indexed"], existing["id"]))
         conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
     return existing["id"]
 
@@ -388,3 +422,184 @@ def add_to_study(conn, study_id, model_ids):
 def remove_from_study(conn, study_id, model_id):
     with conn:
         conn.execute("DELETE FROM model_studies WHERE study_id = ? AND model_id = ?", (study_id, model_id))
+
+
+# --- glossary (Japanese -> English, for search expansion and name suggestions) ---
+
+JAPANESE = re.compile(r"[぀-ヿ㐀-鿿ｦ-ﾟ]")
+# "Rhinoceros (サイ)": an English name with its Japanese in brackets.
+_BILINGUAL = re.compile(r"^(?P<en>[^()]+?)\s*\((?P<ja>[^()]*[぀-ヿ㐀-鿿][^()]*)\)$")
+GLOSSARY_SEEDS = {"subject": "glossary_subjects.csv", "designer": "glossary_designers.csv"}
+
+
+def _norm(text):
+    return " ".join((text or "").split())
+
+
+def seed_glossary(conn):
+    """Insert the bundled entries. INSERT OR IGNORE, so user edits and (soft) deletes survive."""
+    rows = []
+    for kind, name in GLOSSARY_SEEDS.items():
+        with open(Path(__file__).parent / name, encoding="utf-8") as f:
+            for row in csv.reader(line for line in f if line.strip() and not line.startswith("#")):
+                ja, en = _norm(row[0]), _norm(row[1])
+                rows.append((kind, ja, en))
+                if kind == "designer":
+                    # The romanised, family-name-first form ("Kawahata Fumiaki") as well.
+                    rows.append((kind, " ".join(reversed(en.split())), en))
+    with conn:
+        conn.executemany("INSERT OR IGNORE INTO glossary (kind, ja, en, source) VALUES (?, ?, ?, 'seed')", rows)
+
+
+def list_glossary(conn, kind, q=""):
+    sql = "SELECT * FROM glossary WHERE kind = ? AND deleted = 0"
+    params = [kind]
+    if q:
+        sql += " AND (ja LIKE ? OR en LIKE ?)"
+        params += [f"%{q}%"] * 2
+    return conn.execute(sql + " ORDER BY en COLLATE NOCASE, ja", params).fetchall()
+
+
+def save_glossary(conn, kind, ja, en, entry_id=None):
+    """Add or edit an entry; adding an existing (kind, ja) updates it (and undeletes it)."""
+    ja, en = _norm(ja), _norm(en)
+    if not ja or not en:
+        return
+    with conn:
+        if entry_id:
+            conn.execute("UPDATE glossary SET ja = ?, en = ?, source = 'user', deleted = 0 WHERE id = ?", (ja, en, entry_id))
+        else:
+            conn.execute("""INSERT INTO glossary (kind, ja, en) VALUES (?, ?, ?)
+                            ON CONFLICT (kind, ja) DO UPDATE SET en = excluded.en, source = 'user', deleted = 0""",
+                         (kind, ja, en))
+
+
+def delete_glossary(conn, entry_id):
+    """Soft delete, so a seeded entry doesn't come back on the next start."""
+    with conn:
+        conn.execute("UPDATE glossary SET deleted = 1 WHERE id = ?", (entry_id,))
+
+
+def learn_from_name(conn, name):
+    """A model saved as "Rhinoceros (サイ)" teaches the glossary サイ -> Rhinoceros (unless it already knows サイ)."""
+    m = _BILINGUAL.match(_norm(name))
+    if m:
+        with conn:
+            conn.execute("INSERT OR IGNORE INTO glossary (kind, ja, en, source) VALUES ('subject', ?, ?, 'learned')",
+                         (m["ja"].strip(), m["en"].strip()))
+
+
+def glossary_alternatives(conn, text):
+    """Other spellings of a search term: its translation(s) either way, e.g. rhinoceros -> サイ, 犀."""
+    text = _norm(text)
+    ens = {r[0] for r in conn.execute(
+        "SELECT en FROM glossary WHERE kind = 'subject' AND deleted = 0 AND (lower(en) = lower(?) OR ja = ?)", (text, text))}
+    if not ens:
+        return []
+    marks = ",".join("?" * len(ens))
+    alts = {r[0] for r in conn.execute(
+        f"SELECT ja FROM glossary WHERE kind = 'subject' AND deleted = 0 AND en IN ({marks})", list(ens))}
+    return sorted((a for a in alts | ens if a.lower() != text.lower()), key=lambda s: (bool(JAPANESE.search(s)), s.lower()))
+
+
+def suggest(conn, kind, text):
+    """A better form of a model name or designer typed (or copied) from a Japanese source, or None."""
+    text = _norm(text)
+    if not text:
+        return None
+    if kind == "subject":
+        if _BILINGUAL.match(text):
+            return None
+        if JAPANESE.search(text):
+            row = conn.execute("SELECT en FROM glossary WHERE kind = 'subject' AND deleted = 0 AND ja = ?", (text,)).fetchone()
+            return f"{row[0]} ({text})" if row else None
+        row = conn.execute("""SELECT en, ja FROM glossary WHERE kind = 'subject' AND deleted = 0 AND lower(en) = lower(?)
+                              ORDER BY id LIMIT 1""", (text,)).fetchone()
+        return f"{row[0]} ({row[1]})" if row else None
+    row = conn.execute("""SELECT en FROM glossary WHERE kind = 'designer' AND deleted = 0
+                          AND (ja = ? OR replace(ja, ' ', '') = ? OR lower(ja) = lower(?))""",
+                       (text, text.replace(" ", ""), text)).fetchone()
+    if row:
+        return row[0] if row[0] != text else None
+    # Japanese credits in English often write the family name first, in capitals: "KAWAHATA Fumiaki".
+    parts = text.split()
+    if len(parts) == 2:
+        caps = [p for p in parts if p.isupper() and len(p) > 1]
+        given = [p for p in parts if not (p.isupper() and len(p) > 1)]
+        if len(caps) == 1 and len(given) == 1:
+            return f"{given[0]} {caps[0].title()}"
+    return None
+
+
+# --- suggested models (from a book's contents page; see app/toc.py) ---
+
+def split_designer(conn, name):
+    """"フクロウ前川淳" -> ("フクロウ", "Jun Maekawa"): a known designer's kanji run into the model name."""
+    if not JAPANESE.search(name or ""):
+        return name, ""
+    rows = conn.execute("""SELECT ja, en FROM glossary WHERE kind = 'designer' AND deleted = 0
+                           ORDER BY length(ja) DESC""").fetchall()
+    for ja, en in rows:
+        if JAPANESE.search(ja) and name.endswith(ja) and len(name) > len(ja):
+            return name[: -len(ja)].strip(" ・/"), en
+    return name, ""
+
+
+def store_suggestions(conn, book_id, entries, offset, version):
+    """Replace a book's pending suggestions with a fresh extraction; added/dismissed ones stay decided."""
+    rows = []
+    for e in entries:
+        name, designer = split_designer(conn, e["name"])
+        if e["designer"]:
+            designer = suggest(conn, "designer", e["designer"]) or e["designer"]
+        if JAPANESE.search(name):
+            name = suggest(conn, "subject", name) or name  # "Owl (フクロウ)" when the glossary knows it
+        rows.append((book_id, name, designer, e["printed"], int(e["verified"])))
+    with conn:
+        conn.execute("DELETE FROM suggestions WHERE book_id = ? AND state = 'pending'", (book_id,))
+        conn.executemany("""INSERT OR IGNORE INTO suggestions (book_id, name, designer, printed, verified)
+                            VALUES (?, ?, ?, ?, ?)""", rows)
+        conn.execute("UPDATE books SET toc_version = ?, toc_offset = ? WHERE id = ?", (version, offset, book_id))
+
+
+def suggestion_offset(book):
+    """Printed page -> PDF page for suggestions: the book's own offset, else the detected one."""
+    return book["page_offset"] or book["toc_offset"]
+
+
+def list_suggestions(conn, book_id):
+    """A book's pending suggestions (verified first), minus any its models already cover."""
+    book = get_book(conn, book_id)
+    offset = suggestion_offset(book)
+    models = conn.execute("SELECT name, page FROM models WHERE book_id = ?", (book_id,)).fetchall()
+    names = {m["name"].lower() for m in models}
+    pages = {m["page"] for m in models if m["page"]}
+    designers = Counter(m["designer"] for m in conn.execute(
+        "SELECT designer FROM models WHERE book_id = ? AND designer != ''", (book_id,)))
+    # A single-designer book (every model so far by the same person); anthologies get no guess.
+    fallback = next(iter(designers)) if len(designers) == 1 and sum(designers.values()) >= 2 else ""
+    if not fallback and "," not in book["designers"]:
+        fallback = book["designers"]  # the book's designer, as quick add does
+    out = []
+    for r in conn.execute("""SELECT * FROM suggestions WHERE book_id = ? AND state = 'pending'
+                             ORDER BY verified DESC, printed, name""", (book_id,)):
+        page = r["printed"] + offset
+        if page < 1 or r["name"].lower() in names or page in pages:
+            continue
+        out.append({**dict(r), "page": page, "designer": r["designer"] or fallback})
+    return out
+
+
+def get_suggestion(conn, suggestion_id):
+    return conn.execute("SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)).fetchone()
+
+
+def set_suggestion_state(conn, suggestion_ids, state):
+    with conn:
+        conn.executemany("UPDATE suggestions SET state = ? WHERE id = ? AND state = 'pending'",
+                         [(state, i) for i in suggestion_ids])
+
+
+def set_indexed(conn, book_id, indexed):
+    with conn:
+        conn.execute("UPDATE books SET indexed = ? WHERE id = ?", (int(bool(indexed)), book_id))

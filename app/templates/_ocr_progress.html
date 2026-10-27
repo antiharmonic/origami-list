@@ -1,0 +1,14 @@
+<div class="ocr-progress hint">
+  <span>Text search: {{ p.done }} of {{ p.books }} books read ({{ p.percent }}%)
+    {%- if p.paused %} · <strong>paused</strong>
+    {%- elif p.done < p.books and p.hours_left is not none %} · about {{ p.hours_left | hours }} left
+    {%- elif p.done < p.books %} · starting…{% endif -%}
+    {%- if p.errors %} · {{ p.errors }} couldn't be read{% endif %}</span>
+  {% if p.done < p.books %}
+  <form method="post" action="/ocr/pause">
+    <input type="hidden" name="paused" value="{{ 0 if p.paused else 1 }}">
+    <input type="hidden" name="back" value="{{ back }}">
+    <button type="submit" title="{{ 'Carry on reading books' if p.paused else 'Free up the CPU for a while' }}">{{ "Resume" if p.paused else "Pause" }}</button>
+  </form>
+  {% endif %}
+</div>

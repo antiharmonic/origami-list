@@ -4,11 +4,20 @@ from fastapi.testclient import TestClient
 from app import books, config, db
 
 
-def make_pdf(path, pages=2):
-    """Write a minimal valid PDF with blank pages."""
+def make_pdf(path, pages=2, text=None):
+    """Write a minimal valid PDF: blank pages, or with `text` (a list of lines) on every page as a real text layer."""
     kids = " ".join(f"{3 + i} 0 R" for i in range(pages))
     objs = ["<< /Type /Catalog /Pages 2 0 R >>", f"<< /Type /Pages /Kids [{kids}] /Count {pages} >>"]
-    objs += ["<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] >>"] * pages
+    if text:
+        font, content = 3 + pages, 4 + pages
+        objs += [f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Resources << /Font << /F1 {font} 0 R >> >> "
+                 f"/Contents {content} 0 R >>"] * pages
+        lines = " ".join(f"({line}) '" for line in text)
+        stream = f"BT /F1 6 Tf 8 TL 5 290 Td {lines} ET"
+        objs += ["<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                 f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream"]
+    else:
+        objs += ["<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] >>"] * pages
     out, offsets = b"%PDF-1.4\n", []
     for i, body in enumerate(objs, 1):
         offsets.append(len(out))

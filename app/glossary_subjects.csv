@@ -1,0 +1,357 @@
+# Japanese,English. Origami subjects, for search expansion and "Rhinoceros (サイ)" suggestions.
+# Seeded with INSERT OR IGNORE: edits made on the Glossary page win over this file.
+サイ,Rhinoceros
+犀,Rhinoceros
+ゾウ,Elephant
+象,Elephant
+キリン,Giraffe
+ライオン,Lion
+トラ,Tiger
+虎,Tiger
+ヒョウ,Leopard
+チーター,Cheetah
+クマ,Bear
+熊,Bear
+シロクマ,Polar bear
+ホッキョクグマ,Polar bear
+パンダ,Panda
+ウマ,Horse
+馬,Horse
+ウシ,Cow
+牛,Cow
+ヒツジ,Sheep
+羊,Sheep
+ヤギ,Goat
+ブタ,Pig
+豚,Pig
+イヌ,Dog
+犬,Dog
+ネコ,Cat
+猫,Cat
+ウサギ,Rabbit
+兎,Rabbit
+ネズミ,Mouse
+鼠,Mouse
+リス,Squirrel
+キツネ,Fox
+狐,Fox
+オオカミ,Wolf
+狼,Wolf
+シカ,Deer
+鹿,Deer
+トナカイ,Reindeer
+ヘラジカ,Moose
+ラクダ,Camel
+カバ,Hippopotamus
+ゴリラ,Gorilla
+サル,Monkey
+猿,Monkey
+チンパンジー,Chimpanzee
+オランウータン,Orangutan
+コアラ,Koala
+カンガルー,Kangaroo
+ハリネズミ,Hedgehog
+ヤマアラシ,Porcupine
+アルマジロ,Armadillo
+ナマケモノ,Sloth
+アリクイ,Anteater
+コウモリ,Bat
+イノシシ,Wild boar
+バイソン,Bison
+シマウマ,Zebra
+バク,Tapir
+マンモス,Mammoth
+アザラシ,Seal
+アシカ,Sea lion
+セイウチ,Walrus
+ラッコ,Sea otter
+カワウソ,Otter
+ビーバー,Beaver
+タヌキ,Raccoon dog
+アライグマ,Raccoon
+スカンク,Skunk
+イタチ,Weasel
+モグラ,Mole
+ハムスター,Hamster
+ロバ,Donkey
+ユニコーン,Unicorn
+ペガサス,Pegasus
+クジラ,Whale
+鯨,Whale
+イルカ,Dolphin
+シャチ,Orca
+サメ,Shark
+鮫,Shark
+エイ,Ray
+タコ,Octopus
+蛸,Octopus
+イカ,Squid
+カニ,Crab
+蟹,Crab
+エビ,Shrimp
+海老,Shrimp
+イセエビ,Spiny lobster
+ロブスター,Lobster
+ヤドカリ,Hermit crab
+クラゲ,Jellyfish
+ヒトデ,Starfish
+ウニ,Sea urchin
+タツノオトシゴ,Seahorse
+カメ,Turtle
+亀,Turtle
+ウミガメ,Sea turtle
+魚,Fish
+金魚,Goldfish
+コイ,Carp
+鯉,Carp
+マグロ,Tuna
+タイ,Sea bream
+鯛,Sea bream
+フグ,Pufferfish
+マンボウ,Ocean sunfish
+アンコウ,Anglerfish
+エンゼルフィッシュ,Angelfish
+貝,Shell
+カタツムリ,Snail
+アンモナイト,Ammonite
+カブトガニ,Horseshoe crab
+ペンギン,Penguin
+鳥,Bird
+ツル,Crane
+鶴,Crane
+折り鶴,Paper crane
+ハクチョウ,Swan
+白鳥,Swan
+ハト,Dove
+鳩,Dove
+ワシ,Eagle
+鷲,Eagle
+タカ,Hawk
+鷹,Hawk
+ハヤブサ,Falcon
+隼,Falcon
+フクロウ,Owl
+梟,Owl
+ミミズク,Horned owl
+カラス,Crow
+烏,Crow
+スズメ,Sparrow
+雀,Sparrow
+ツバメ,Swallow
+燕,Swallow
+インコ,Parakeet
+オウム,Parrot
+クジャク,Peacock
+孔雀,Peacock
+ニワトリ,Chicken
+鶏,Chicken
+オンドリ,Rooster
+ヒヨコ,Chick
+アヒル,Duck
+カモ,Duck
+ガチョウ,Goose
+ダチョウ,Ostrich
+フラミンゴ,Flamingo
+ペリカン,Pelican
+キツツキ,Woodpecker
+ハチドリ,Hummingbird
+カワセミ,Kingfisher
+サギ,Heron
+トキ,Crested ibis
+オオハシ,Toucan
+キジ,Pheasant
+カモメ,Seagull
+コンドル,Condor
+ハゲワシ,Vulture
+鳳凰,Phoenix
+ヘビ,Snake
+蛇,Snake
+トカゲ,Lizard
+ワニ,Crocodile
+カメレオン,Chameleon
+イグアナ,Iguana
+ヤモリ,Gecko
+カエル,Frog
+蛙,Frog
+サンショウウオ,Salamander
+イモリ,Newt
+恐竜,Dinosaur
+ティラノサウルス,Tyrannosaurus
+トリケラトプス,Triceratops
+ステゴサウルス,Stegosaurus
+ブラキオサウルス,Brachiosaurus
+アパトサウルス,Apatosaurus
+プテラノドン,Pteranodon
+ヴェロキラプトル,Velociraptor
+ベロキラプトル,Velociraptor
+スピノサウルス,Spinosaurus
+アンキロサウルス,Ankylosaurus
+パラサウロロフス,Parasaurolophus
+イグアノドン,Iguanodon
+アロサウルス,Allosaurus
+プレシオサウルス,Plesiosaurus
+首長竜,Plesiosaur
+昆虫,Insect
+虫,Bug
+甲虫,Beetle
+チョウ,Butterfly
+蝶,Butterfly
+アゲハチョウ,Swallowtail butterfly
+ガ,Moth
+蛾,Moth
+トンボ,Dragonfly
+蜻蛉,Dragonfly
+カブトムシ,Rhinoceros beetle
+クワガタ,Stag beetle
+クワガタムシ,Stag beetle
+テントウムシ,Ladybug
+ハチ,Bee
+蜂,Bee
+スズメバチ,Hornet
+アリ,Ant
+蟻,Ant
+バッタ,Grasshopper
+カマキリ,Praying mantis
+セミ,Cicada
+蝉,Cicada
+コオロギ,Cricket
+ホタル,Firefly
+ゴキブリ,Cockroach
+クモ,Spider
+蜘蛛,Spider
+サソリ,Scorpion
+ムカデ,Centipede
+ハエ,Fly
+蚊,Mosquito
+タガメ,Giant water bug
+ナナフシ,Stick insect
+アメンボ,Water strider
+ゲンゴロウ,Diving beetle
+カミキリムシ,Longhorn beetle
+タマムシ,Jewel beetle
+ダンゴムシ,Pill bug
+花,Flower
+バラ,Rose
+薔薇,Rose
+ユリ,Lily
+百合,Lily
+サクラ,Cherry blossom
+桜,Cherry blossom
+ウメ,Plum blossom
+梅,Plum blossom
+キク,Chrysanthemum
+菊,Chrysanthemum
+アサガオ,Morning glory
+ヒマワリ,Sunflower
+チューリップ,Tulip
+ハス,Lotus
+蓮,Lotus
+スイレン,Water lily
+アヤメ,Iris
+カーネーション,Carnation
+ツバキ,Camellia
+アジサイ,Hydrangea
+ラン,Orchid
+蘭,Orchid
+ポインセチア,Poinsettia
+葉,Leaf
+木,Tree
+マツ,Pine
+松,Pine
+タケ,Bamboo
+竹,Bamboo
+カエデ,Maple
+紅葉,Autumn leaves
+ドングリ,Acorn
+キノコ,Mushroom
+サボテン,Cactus
+イチゴ,Strawberry
+リンゴ,Apple
+ミカン,Mandarin orange
+カボチャ,Pumpkin
+箱,Box
+星,Star
+手裏剣,Shuriken
+風船,Balloon
+紙飛行機,Paper airplane
+飛行機,Airplane
+船,Boat
+舟,Boat
+帆船,Sailboat
+兜,Samurai helmet
+かぶと,Samurai helmet
+奴さん,Yakko
+やっこさん,Yakko
+袴,Hakama
+着物,Kimono
+人形,Doll
+雛人形,Hina doll
+天使,Angel
+悪魔,Devil
+鬼,Oni
+龍,Dragon
+竜,Dragon
+ドラゴン,Dragon
+河童,Kappa
+天狗,Tengu
+サンタクロース,Santa Claus
+魔女,Witch
+忍者,Ninja
+侍,Samurai
+武士,Samurai
+人,Person
+顔,Face
+手,Hand
+仮面,Mask
+お面,Mask
+骸骨,Skeleton
+ドクロ,Skull
+ハート,Heart
+指輪,Ring
+封筒,Envelope
+財布,Wallet
+椅子,Chair
+机,Desk
+ピアノ,Piano
+ギター,Guitar
+家,House
+城,Castle
+塔,Tower
+五重塔,Pagoda
+傘,Umbrella
+扇,Fan
+扇子,Folding fan
+帽子,Hat
+シャツ,Shirt
+靴,Shoe
+時計,Clock
+車,Car
+汽車,Train
+電車,Train
+自転車,Bicycle
+ロケット,Rocket
+宇宙船,Spaceship
+ロボット,Robot
+剣,Sword
+刀,Katana
+盾,Shield
+鎧,Armor
+弓,Bow
+王冠,Crown
+花瓶,Vase
+コップ,Cup
+ティーポット,Teapot
+月,Moon
+太陽,Sun
+雪の結晶,Snowflake
+雪だるま,Snowman
+雲,Cloud
+山,Mountain
+くす玉,Kusudama
+多面体,Polyhedron
+正二十面体,Icosahedron
+正十二面体,Dodecahedron
+立方体,Cube
+平織り,Tessellation
+テセレーション,Tessellation
+展開図,Crease pattern

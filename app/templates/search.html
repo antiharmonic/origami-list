@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ q ~ " · " if q }}Search · Origami List{% endblock %}
+{% block content %}
+<h1>Search your books</h1>
+<form method="get" action="/search" class="search-form">
+  <input type="search" name="q" value="{{ q }}" placeholder="e.g. falcon, rhinoceros, サイ" autofocus>
+  <button type="submit" class="primary">Search</button>
+</form>
+{% if alternatives %}<p class="hint">Also searching: {{ alternatives | join(", ") }}</p>{% endif %}
+
+{% if q %}
+  {% if models %}
+  <section class="search-models">
+    <h2>In your list ({{ models | length }})</h2>
+    <ul class="book-models">
+      {% for m in models %}
+      <li>
+        <a href="/models/{{ m.id }}/edit">{{ m.name }}</a>
+        {% if m.designer %}<span class="designer">{{ m.designer }}</span>{% endif %}
+        {% if m.book_title %}<span class="hint">{{ m.book_title }}{% if m.page %} p.{{ m.page }}{% endif %}</span>{% endif %}
+        <span class="status-{{ m.status }}">{{ STATUS_LABELS[m.status] }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <section>
+    <h2>In your books ({{ results | length }}{{ "+" if results | length >= 40 }})</h2>
+    {% if not results %}<p class="hint">No pages mention “{{ q }}”{% if progress.done < progress.books %} in the books read so far{% endif %}.</p>{% endif %}
+    {% for r in results %}
+    <div class="search-book">
+      <h3><a href="/library/book?{{ urlencode({'path': r.path}) }}">{{ r.title }}</a>
+        <span class="hint">{{ r.pages }} page{{ "s" if r.pages != 1 }}</span></h3>
+      <div class="search-runs">
+        {% for run in r.runs %}
+        {% set open_url = "/library/book?" ~ urlencode({'path': r.path, 'page': run.start}) %}
+        <div class="search-run">
+          <a href="{{ open_url }}" class="search-thumb"><img loading="lazy" alt="Page {{ run.start }}"
+             src="/thumb?{{ urlencode({'book': r.path, 'page': run.start}) }}"></a>
+          <div>
+            <a href="{{ open_url }}"><strong>p.{{ run.start }}{% if run.end != run.start %}–{{ run.end }}{% endif %}</strong></a>
+            <p class="snippet">{{ run.snippet }}</p>
+            <a class="button" href="/library/book?{{ urlencode({'path': r.path, 'page': run.start, 'name': add_name}) }}"
+               title="Open the book here with the name filled in">+ Add “{{ add_name }}”</a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+{% endif %}
+
+{% set p = progress %}{% set back = "/search?" ~ urlencode({'q': q}) %}
+{% include "_ocr_progress.html" %}
+{% endblock %}

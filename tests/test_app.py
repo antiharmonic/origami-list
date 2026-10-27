@@ -3,7 +3,7 @@ import shutil
 
 import pytest
 
-from app import books, db, import_csv
+from app import books, db, import_csv, toc
 from tests.conftest import make_pdf
 
 ORIGINAL_CSV = """model,author,complexity,suggested_paper,book,file,page,folded,notes
@@ -485,3 +485,278 @@ def test_quick_add_from_viewer(client, conn):
     assert client.post("/library/book/models", data={"path": NATURE, "name": " "}).status_code == 400
     assert client.post("/library/book/models", data={"path": "nope.pdf", "name": "X"}).status_code == 404
     assert client.post("/library/book/models", data={"path": "../secret.pdf", "name": "X"}).status_code == 404
+
+
+# --- library search (OCR) and glossary ---
+
+from app import ocr  # noqa: E402
+
+needs_tesseract = pytest.mark.skipif(not shutil.which("tesseract"), reason="tesseract not installed")
+RHINO_TEXT = ["Rhinoceros by Fumiaki Kawahata", "Fold the square in half and unfold.", "Several varieties of this animal."]
+
+
+def add_ocr_pages(rows):
+    """Put fake OCR'd pages into ocr.db: [(path, page, text)]."""
+    conn = ocr.connect()
+    with conn:
+        conn.executemany("INSERT INTO ocr_pages (path, page, source, text) VALUES (?, ?, 'ocr', ?)", rows)
+    conn.close()
+
+
+def test_page_text_prefers_the_text_layer(dirs):
+    make_pdf(dirs[0] / "Texty.pdf", pages=1, text=RHINO_TEXT)
+    source, text = ocr.page_text(dirs[0] / "Texty.pdf", 1)
+    assert source == "text" and "Rhinoceros" in text
+
+
+@needs_tesseract
+def test_page_text_falls_back_to_ocr(dirs):
+    source, text = ocr.page_text(dirs[0] / "sub" / "Kato - Nature Study.pdf", 1)
+    assert source == "ocr" and text.strip() == ""
+
+
+@needs_tesseract
+def test_worker_queue_priority_and_resync(dirs):
+    conn = ocr.connect()
+    make_pdf(dirs[0] / "Texty.pdf", pages=2, text=RHINO_TEXT)
+    present = books.scan(force=True)
+    ocr.sync(conn, ocr.sizes_and_mtimes(present))
+    added = {NATURE: 3, INSECTS: 2, "Texty.pdf": 1}
+    assert ocr.next_book(conn, present, added) == NATURE  # newest first
+    ocr.set_control(conn, priority_path="Texty.pdf")
+    assert ocr.next_book(conn, present, added) == "Texty.pdf"
+
+    ocr.process_book(conn, "Texty.pdf", workers=1, log=lambda m: None)
+    row = conn.execute("SELECT * FROM ocr_books WHERE path = 'Texty.pdf'").fetchone()
+    assert (row["state"], row["pages"], row["done_pages"]) == ("done", 2, 2)
+    assert ocr.get_control(conn)["priority_path"] is None
+    assert ocr.search(conn, ["rhinoceros"], {"Texty.pdf"})[0]["runs"][0]["start"] == 1
+    assert ocr.book_status(conn, NATURE, set(present), added)["position"] == 1
+    assert ocr.progress(conn, present)["done"] == 1
+
+    # A changed file is read again from scratch.
+    make_pdf(dirs[0] / "Texty.pdf", pages=3, text=RHINO_TEXT)
+    ocr.sync(conn, ocr.sizes_and_mtimes(present))
+    row = conn.execute("SELECT * FROM ocr_books WHERE path = 'Texty.pdf'").fetchone()
+    assert row["state"] == "queued" and conn.execute("SELECT COUNT(*) FROM ocr_pages").fetchone()[0] == 0
+
+    # Pausing stops a book part way; it carries on later.
+    ocr.set_control(conn, paused=1)
+    ocr.process_book(conn, "Texty.pdf", workers=1, log=lambda m: None)
+    assert conn.execute("SELECT state FROM ocr_books WHERE path = 'Texty.pdf'").fetchone()[0] == "queued"
+    conn.close()
+
+
+def test_collapse_runs_and_snippet():
+    assert ocr.collapse_runs([12, 3, 4, 5, 9, 11]) == [(3, 5), (9, 9), (11, 12)]
+    assert str(ocr.snippet("a <b> Rhinoceros here", ["rhinoceros"])) == "a &lt;b&gt; <mark>Rhinoceros</mark> here"
+
+
+def test_search_page(client, conn):
+    add_ocr_pages([
+        (NATURE, 3, "Rhinoceros step 1"), (NATURE, 4, "Rhinoceros step 9"), (NATURE, 7, "the rhinoceros again"),
+        (INSECTS, 2, "サイの折り方"), (INSECTS, 5, "Beetle"),
+    ])
+    page = client.get("/search", params={"q": "rhinoceros"}).text
+    # The glossary adds the Japanese (single characters like 犀 are skipped: too noisy to search alone).
+    assert "Also searching: サイ" in page and "犀" not in page.split("Also searching")[1].split("</p>")[0]
+    assert "p.3–4" in page and "p.7" in page and "<mark>Rhinoceros</mark>" in page and "<mark>サイ</mark>" in page
+    assert "page=3" in page and "name=Rhinoceros+%28%E3%82%B5%E3%82%A4%29" in page  # + Add "Rhinoceros (サイ)"
+    assert "Text search:" in page
+
+    # Two-character Japanese is matched by scanning, and hidden books drop out.
+    assert "Origami Insects" in client.get("/search", params={"q": "サイ"}).text
+    client.post("/library/hide", data={"path": INSECTS, "hidden": "1"})
+    assert "Origami Insects" not in client.get("/search", params={"q": "サイ"}).text
+
+    # Models in the list match too.
+    client.post("/models", data={"name": "Rhinoceros", "book": NATURE, "page": "3"})
+    assert "In your list (1)" in client.get("/search", params={"q": "rhino"}).text
+
+
+def test_glossary_seed_edit_delete(conn):
+    db.seed_glossary(conn)
+    count = conn.execute("SELECT COUNT(*) FROM glossary").fetchone()[0]
+    db.seed_glossary(conn)
+    assert conn.execute("SELECT COUNT(*) FROM glossary").fetchone()[0] == count > 300
+
+    db.save_glossary(conn, "subject", "サイ", "Rhino")  # a user edit beats the seed
+    gone = conn.execute("SELECT id FROM glossary WHERE ja = 'ゾウ'").fetchone()[0]
+    db.delete_glossary(conn, gone)
+    db.seed_glossary(conn)
+    assert db.suggest(conn, "subject", "サイ") == "Rhino (サイ)"
+    assert db.suggest(conn, "subject", "ゾウ") is None
+
+
+def test_suggestions(conn):
+    db.seed_glossary(conn)
+    s = lambda kind, text: db.suggest(conn, kind, text)
+    assert s("subject", "サイ") == "Rhinoceros (サイ)"
+    assert s("subject", "rhinoceros") == "Rhinoceros (サイ)"
+    assert s("subject", "Rhinoceros (サイ)") is None and s("subject", "Gizmo") is None
+    assert s("designer", "川畑文昭") == s("designer", "川畑 文昭") == "Fumiaki Kawahata"
+    assert s("designer", "Kawahata Fumiaki") == s("designer", "KAWAHATA Fumiaki") == "Fumiaki Kawahata"
+    assert s("designer", "SUZUKI Taro") == "Taro Suzuki"  # unknown, but family name in capitals
+    assert s("designer", "John Montroll") is None and s("designer", "Fumiaki Kawahata") is None
+
+
+def test_quick_add_learns_and_suggests(client, conn):
+    client.post("/library/book/models", data={"path": NATURE, "name": "Gazelle (ガゼル)", "page": "4"})
+    assert db.suggest(conn, "subject", "ガゼル") == "Gazelle (ガゼル)"
+    chip = client.get("/api/suggest", params={"kind": "subject", "target": "qa-name", "name": "ガゼル"}).text
+    assert 'data-value="Gazelle (ガゼル)"' in chip and 'data-target="qa-name"' in chip
+    assert client.get("/api/suggest", params={"kind": "designer", "designer": "John Montroll"}).text == ""
+
+    page = client.get("/library/book", params={"path": NATURE, "page": "4", "name": "サイ"}).text
+    assert 'value="サイ"' in page and 'data-value="Rhinoceros (サイ)"' in page
+    assert "Text search: queued" in page and "Read this book next" in page
+
+
+def test_page_text_and_ocr_controls(client):
+    add_ocr_pages([(NATURE, 2, "Crane <diagram>")])
+    assert "Crane &lt;diagram&gt;" in client.get("/api/page-text", params={"path": NATURE, "page": 2}).text
+    assert "hasn't been read yet" in client.get("/api/page-text", params={"path": NATURE, "page": 1}).text
+    assert client.get("/api/page-text", params={"path": "../secret.pdf", "page": 1}).status_code == 404
+
+    client.post("/ocr/priority", data={"path": NATURE})
+    client.post("/ocr/pause", data={"paused": "1"})
+    conn = ocr.connect()
+    control = ocr.get_control(conn)
+    assert (control["paused"], control["priority_path"]) == (1, NATURE)
+    conn.close()
+    assert "paused" in client.get("/library").text and "Resume" in client.get("/library").text
+
+
+def test_glossary_page(client, conn):
+    client.post("/glossary", data={"kind": "designer", "ja": "加々美均", "en": "Hitoshi Kakami"})
+    page = client.get("/glossary", params={"kind": "designer", "q": "Kakami"}).text
+    assert 'value="加々美均"' in page and 'value="Fumiaki Kawahata"' not in page
+    entry = conn.execute("SELECT id FROM glossary WHERE ja = '加々美均'").fetchone()[0]
+    client.post("/glossary", data={"kind": "designer", "ja": "加々美均", "en": "Hitoshi KAKAMI", "entry_id": entry})
+    assert db.suggest(conn, "designer", "加々美均") == "Hitoshi KAKAMI"
+    client.post(f"/glossary/{entry}/delete", data={"kind": "designer"})
+    assert db.suggest(conn, "designer", "加々美均") is None
+
+
+def test_japanese_spacing_and_short_katakana(client):
+    assert ocr.normalize("シロ サイ の 折り 方\nRhino ceros 2 枚") == "シロサイの折り方\nRhino ceros 2 枚"
+    add_ocr_pages([(NATURE, 3, ocr.normalize("シロ サイ")), (INSECTS, 4, ocr.normalize("A4 サイ ズ の 紙"))])
+    page = client.get("/search", params={"q": "サイ"}).text
+    assert "Nature Study" in page and "Origami Insects" not in page  # サイズ ("size") isn't a rhino
+
+
+# --- suggested models from contents pages ---
+
+ENGEL_TOC = """CONTENTS
+
+ACKNOWLEDGMENTS vii
+FOREWORD 1
+SYMBOLS AND PROCEDURES 8
+ANGELFISH ......... 20
+BUTTERFLY FISH 22
+| KANGAROO 25
+GIRAFFE 29
+PENGUIN 33
+NOTES AND SOURCES 40
+"""
+
+
+def toc_book(offset=4):
+    """{page: text} for a book whose models sit at printed page + offset."""
+    pages = {3: ENGEL_TOC}
+    for name, printed in [("ANGELFISH", 20), ("BUTTERFLY FISH", 22), ("KANGAROO", 25), ("GIRAFFE", 29)]:
+        pages[printed + offset] = f"{name}\nFold in half."
+    return pages
+
+
+def test_toc_parses_contents_and_detects_offset():
+    entries, info = toc.extract(toc_book())
+    assert info["toc_pages"] == [3] and info["offset"] == 4 and info["detected"]
+    names = [e["name"] for e in entries]
+    assert names == ["Angelfish", "Butterfly Fish", "Kangaroo", "Giraffe", "Penguin"]  # no front/back matter
+    by = {e["name"]: e for e in entries}
+    assert by["Angelfish"]["page"] == 24 and by["Angelfish"]["verified"]
+    assert by["Penguin"]["page"] == 37 and not by["Penguin"]["verified"]
+    # The book's own offset wins over detection.
+    entries, info = toc.extract(toc_book(), offset=2)
+    assert info["offset"] == 2 and not info["detected"] and entries[0]["page"] == 22
+
+
+def test_toc_ignores_non_contents_and_reads_japanese():
+    assert toc.contents_entries("Step 1 fold\nStep 2 fold\nsome text 3") == []
+    # A numbered list repeating the same numbers isn't a contents page.
+    assert toc.contents_entries("\n".join(f"idea number {n}" for n in [1, 1, 3, 3, 3, 3, 3])) == []
+    jp = "目次\nうさぎ / 鶴田芳理 10\nフクロウ前川淳 14\nユニコーン 18\nUnicorn Tetsuya Gotani\n"
+    entries = toc.contents_entries(jp)
+    assert ("うさぎ", 10, "鶴田芳理") in entries
+    assert ("Unicorn Tetsuya Gotani (ユニコーン)", 18, "") in entries
+    # "page 74" with the name on the line above.
+    city = "Contents\nEiffel Tower\npage 74\nTokyo Tower\npage 80\nTorii page 90\n"
+    assert [e[0] for e in toc.contents_entries(city)] == ["Eiffel Tower", "Tokyo Tower", "Torii"]
+
+
+def test_store_suggestions_keeps_decisions(conn):
+    db.seed_glossary(conn)
+    book_id = db.get_or_create_book(conn, NATURE)
+    entries = [{"name": n, "designer": d, "printed": p, "page": p, "verified": True}
+               for n, d, p in [("フクロウ前川淳", "", 10), ("Crane", "", 12), ("Frog", "", 14), ("ウサギ", "鶴田芳理", 16)]]
+    db.store_suggestions(conn, book_id, entries, 0, 1)
+    shown = {s["name"]: s for s in db.list_suggestions(conn, book_id)}
+    assert shown["Owl (フクロウ)"]["designer"] == "Jun Maekawa"  # designer split off, name from the glossary
+    assert shown["Rabbit (ウサギ)"]["designer"] == "鶴田芳理"
+    db.set_suggestion_state(conn, [shown["Crane"]["id"]], "dismissed")
+    db.store_suggestions(conn, book_id, entries, 0, 2)  # a re-extraction doesn't bring it back
+    assert "Crane" not in {s["name"] for s in db.list_suggestions(conn, book_id)}
+    # Models already on the list (by name or page) hide their suggestion.
+    db.create_model(conn, {"name": "frog", "designer": "", "book_id": book_id, "page": None, "status": "want"})
+    assert "Frog" not in {s["name"] for s in db.list_suggestions(conn, book_id)}
+    # Relinking with a shift moves suggested pages along.
+    db.relink_book(conn, book_id, INSECTS, shift=3)
+    assert {s["page"] for s in db.list_suggestions(conn, book_id)} == {13, 19}
+
+
+def ocr_done(path, pages):
+    add_ocr_pages([(path, p, t) for p, t in pages.items()])
+    conn = ocr.connect()
+    with conn:
+        conn.execute("INSERT INTO ocr_books (path, size, mtime, pages, done_pages, state) VALUES (?, 1, 1, ?, ?, 'done')",
+                     (path, len(pages), len(pages)))
+    conn.close()
+
+
+def test_book_page_suggestions_flow(client, conn):
+    ocr_done(INSECTS, toc_book())
+    page = client.get("/library/book", params={"path": INSECTS}).text
+    assert "Suggested from contents (5)" in page and "offset +4" in page and 'data-goto="24"' in page
+    row = db.get_book_by_path(conn, INSECTS)
+    ids = {s["name"]: s["id"] for s in db.list_suggestions(conn, row["id"])}
+
+    # Add one (it becomes a model), dismiss another.
+    out = client.post("/library/book/models", data={"path": INSECTS, "name": "Angelfish", "page": "24",
+                                                    "suggestion_id": ids["Angelfish"]}).text
+    assert "Angelfish" in out and "Suggested from contents (4)" in out
+    out = client.post("/library/book/suggestions/dismiss", data={"path": INSECTS, "suggestion_id": ids["Penguin"]}).text
+    assert "Suggested from contents (3)" in out
+
+    # Add all verified: the remaining three are all found on their pages.
+    out = client.post("/library/book/suggestions/add-verified", data={"path": INSECTS, "status": "want"}).text
+    assert "Giraffe" in out and 'id="suggestions"' in out and "Suggested from contents" not in out
+    assert len(db.list_models(conn, book_id=row["id"])) == 4
+
+    # The detected offset can become the book's own.
+    client.post("/library/book/offset", data={"path": INSECTS})
+    assert db.get_book_by_path(conn, INSECTS)["page_offset"] == 4
+
+
+def test_fully_indexed_hides_suggestions(client, conn):
+    ocr_done(INSECTS, toc_book())
+    assert "Mark fully indexed" in client.get("/library/book", params={"path": INSECTS}).text
+    out = client.post("/library/book/indexed", data={"path": INSECTS, "indexed": "1"}).text
+    assert "Fully indexed ✓" in out and "Suggested from contents" not in out
+    assert "Suggested from contents" not in client.get("/library/book", params={"path": INSECTS}).text
+    client.post("/library/book/indexed", data={"path": INSECTS, "indexed": "0"})
+    assert "Suggested from contents (5)" in client.get("/library/book", params={"path": INSECTS}).text
+    # A book with no contents page gets no row (and no section).
+    ocr_done(NATURE, {1: "Just a cover"})
+    assert "Suggested from contents" not in client.get("/library/book", params={"path": NATURE}).text
+    assert db.get_book_by_path(conn, NATURE) is None

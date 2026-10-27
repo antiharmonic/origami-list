@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 
-from . import books, config, db, import_csv, thumbs
+from . import books, config, db, import_csv, ocr, thumbs, toc
 
 APP_DIR = Path(__file__).parent
 PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
@@ -27,7 +27,9 @@ async def lifespan(app):
         (config.DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
     conn = db.connect()
     db.migrate(conn)
+    db.seed_glossary(conn)
     conn.close()
+    ocr.connect().close()  # creates data/ocr.db, so pages can read it before the worker's first pass
     yield
 
 
@@ -37,6 +39,7 @@ app.mount("/pdfjs", StaticFiles(directory=config.PDFJS_DIR, check_dir=False), na
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 templates.env.filters["urlpath"] = lambda p: quote(p or "")
 templates.env.filters["studies"] = db.parse_studies
+templates.env.filters["hours"] = lambda h: f"{round(h * 60)} min" if h < 1 else f"{h:.1f} h" if h < 10 else f"{round(h)} h"
 templates.env.filters["date"] = lambda ts: datetime.fromtimestamp(ts).strftime("%Y-%m-%d") if ts else ""
 
 
@@ -85,6 +88,14 @@ templates.env.globals.update(STATUSES=db.STATUSES, STATUS_LABELS=db.STATUS_LABEL
 
 def get_conn():
     conn = db.connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def get_ocr():
+    conn = ocr.connect()
     try:
         yield conn
     finally:
@@ -250,6 +261,7 @@ def _after_save(form, fields, study_ids):
 async def create_model(request: Request, conn=Depends(get_conn)):
     form, fields = await _fields_from_form(request, conn)
     model_id = db.create_model(conn, fields, at_top=form.get("position") == "top")
+    db.learn_from_name(conn, fields["name"])
     photo = await _save_photo(model_id, form.get("photo"))
     if photo:
         db.update_model(conn, model_id, {"photo": photo})
@@ -269,6 +281,7 @@ async def update_model(request: Request, model_id: int, conn=Depends(get_conn)):
             old.unlink()
         fields["photo"] = None
     db.update_model(conn, model_id, fields)
+    db.learn_from_name(conn, fields["name"])
     return _after_save(form, fields, _save_studies(conn, model_id, form))
 
 
@@ -377,6 +390,9 @@ def _library_entry(path, row, added_at=0):
         "notes": row["notes"] if row else "",
         "page_offset": row["page_offset"] if row else 0,
         "cover_page": row["cover_page"] if row else 1,
+        "indexed": bool(row["indexed"]) if row else False,
+        "toc_version": row["toc_version"] if row else 0,
+        "toc_offset": row["toc_offset"] if row else 0,
         "id": row["id"] if row else None,
         "added_at": added_at,
     }
@@ -400,7 +416,7 @@ def _library_summary(entries):
 
 
 @app.get("/library", response_class=HTMLResponse)
-def library(request: Request, conn=Depends(get_conn)):
+def library(request: Request, conn=Depends(get_conn), oconn=Depends(get_ocr)):
     params = request.query_params
     statuses = [s for s in params.getlist("status") if s in db.BOOK_STATUSES]
     if "filtered" not in params:
@@ -432,7 +448,7 @@ def library(request: Request, conn=Depends(get_conn)):
     return templates.TemplateResponse(request, "library.html", {
         "entries": shown, "total": len(universe), "summary": _library_summary(entries), "missing": missing,
         "statuses": statuses, "q": q, "has_models": has_models, "starred": starred, "show_hidden": show_hidden,
-        "sort": sort,
+        "sort": sort, "ocr_progress": ocr.progress(oconn, books.scan()),
     })
 
 
@@ -484,13 +500,52 @@ def library_relink(path: str = Form(...), book: str = Form(...), shift: str = Fo
 
 
 @app.get("/library/book", response_class=HTMLResponse)
-def library_book(request: Request, path: str, conn=Depends(get_conn)):
+def library_book(request: Request, path: str, conn=Depends(get_conn), oconn=Depends(get_ocr)):
     b = _book_entry_or_404(conn, path)
+    if _ensure_suggestions(conn, oconn, b):
+        b = _book_entry_or_404(conn, path)
     models = db.list_models(conn, book_id=b["id"], sort="book") if b["id"] else []
+    params = request.query_params
+    name = params.get("name", "")
     return templates.TemplateResponse(request, "book.html", {
-        "b": b, "models": models, "saved": bool(request.query_params.get("saved")),
-        "relinked": bool(request.query_params.get("relinked")), "page": _opt_int(request.query_params.get("page", "")),
+        "b": b, "models": models, "saved": bool(params.get("saved")), "relinked": bool(params.get("relinked")),
+        "page": _opt_int(params.get("page", "")), "name": name,
+        "name_suggestion": db.suggest(conn, "subject", name) if name else None,
+        "ocr": _ocr_book_status(conn, oconn, path),
+        **_suggestions_ctx(conn, b),
     })
+
+
+def _ensure_suggestions(conn, oconn, b):
+    """Read the book's contents page into suggestions, once its OCR is done (and again when toc.VERSION changes)."""
+    if b["missing"] or b["indexed"] or b["toc_version"] >= toc.VERSION:
+        return False
+    row = oconn.execute("SELECT state FROM ocr_books WHERE path = ?", (b["path"],)).fetchone()
+    if not row or row["state"] != "done":
+        return False
+    pages = dict(oconn.execute("SELECT page, text FROM ocr_pages WHERE path = ? AND source != 'error'", (b["path"],)))
+    entries, info = toc.extract(pages, b["page_offset"])
+    if not entries and not b["id"]:
+        return False  # nothing to suggest; don't create a row just to remember that
+    book_id = b["id"] or db.get_or_create_book(conn, b["path"])
+    db.store_suggestions(conn, book_id, entries, info["offset"] if info["detected"] else 0, toc.VERSION)
+    return True
+
+
+def _suggestions_ctx(conn, b):
+    """What _suggestions.html needs: the pending suggestions and how their pages were worked out."""
+    pending = db.list_suggestions(conn, b["id"]) if b["id"] and not b["indexed"] and not b["missing"] else []
+    return {"suggestions": pending, "detected_offset": b["toc_offset"] if not b["page_offset"] else 0}
+
+
+def _render_suggestions(conn, path, oob=False):
+    b = _book_entry_or_404(conn, path)
+    return templates.get_template("_suggestions.html").render(b=b, oob=oob, **_suggestions_ctx(conn, b))
+
+
+def _ocr_book_status(conn, oconn, path):
+    added = db.record_added(conn, books.ctimes())
+    return ocr.book_status(oconn, path, set(books.scan()), added)
 
 
 @app.post("/library/book/models", response_class=HTMLResponse)
@@ -515,14 +570,87 @@ async def quick_add_model(request: Request, conn=Depends(get_conn)):
         "book_id": book_id,
         "page": page if page and page > 0 else None,
     })
+    db.learn_from_name(conn, name)
     study_ids = _save_studies(conn, model_id, form)
+    suggestion = _opt_int(form.get("suggestion_id") or "")
+    if suggestion and (row := db.get_suggestion(conn, suggestion)) and row["book_id"] == book_id:
+        db.set_suggestion_state(conn, [suggestion], "added")
+    return _book_models_response(conn, path, book_id, study_ids, added={"name": name, "page": page})
+
+
+def _book_models_response(conn, path, book_id, study_ids, added):
+    """The book's model list, plus everything else in the panel an add changes (as out-of-band swaps)."""
     models = db.list_models(conn, book_id=book_id, sort="book")
     return HTMLResponse(
-        templates.get_template("_book_models.html").render(models=models, added={"name": name, "page": page})
+        templates.get_template("_book_models.html").render(models=models, added=added)
         + templates.get_template("_todo_count.html").render(oob=True)
         + templates.get_template("_study_chips.html").render(member=study_ids, oob=True)
         + templates.get_template("_book_status.html").render(b=_book_entry_or_404(conn, path), oob=True)
+        + _render_suggestions(conn, path, oob=True)
     )
+
+
+def _book_row_or_404(conn, path):
+    row = db.get_book_by_path(conn, path)
+    if not row:
+        raise HTTPException(404)
+    return row
+
+
+@app.post("/library/book/suggestions/dismiss", response_class=HTMLResponse)
+async def dismiss_suggestions(request: Request, conn=Depends(get_conn)):
+    """Dismiss one suggestion (`suggestion_id`) or, with `all`, every one still shown."""
+    form = await request.form()
+    path = form.get("path") or ""
+    row = _book_row_or_404(conn, path)
+    if form.get("all"):
+        ids = [s["id"] for s in db.list_suggestions(conn, row["id"])]
+    else:
+        ids = [i for i in [_opt_int(form.get("suggestion_id") or "")] if i]
+    db.set_suggestion_state(conn, [i for i in ids if (s := db.get_suggestion(conn, i)) and s["book_id"] == row["id"]],
+                            "dismissed")
+    return HTMLResponse(_render_suggestions(conn, path))
+
+
+@app.post("/library/book/suggestions/add-verified", response_class=HTMLResponse)
+async def add_verified_suggestions(request: Request, conn=Depends(get_conn)):
+    """Add every verified suggestion as a model, with the quick-add form's status and studies."""
+    form = await request.form()
+    path = form.get("path") or ""
+    row = _book_row_or_404(conn, path)
+    status = form.get("status") or "want"
+    picked = [s for s in db.list_suggestions(conn, row["id"]) if s["verified"]]
+    ids = [int(s) for s in form.getlist("study") if s.isdigit()]
+    for s in sorted(picked, key=lambda s: s["page"]):
+        model_id = db.create_model(conn, {
+            "name": s["name"], "designer": s["designer"], "complexity": None,
+            "status": status if status in db.STATUSES else "want", "book_id": row["id"], "page": s["page"],
+        })
+        db.learn_from_name(conn, s["name"])
+        db.set_model_studies(conn, model_id, ids)
+    db.set_suggestion_state(conn, [s["id"] for s in picked], "added")
+    if picked:
+        db.mark_browsing(conn, row["id"])
+    return _book_models_response(conn, path, row["id"], ids, added={"name": f"{len(picked)} models", "page": None})
+
+
+@app.post("/library/book/offset", response_class=HTMLResponse)
+def use_detected_offset(path: str = Form(...), conn=Depends(get_conn)):
+    """Make the offset detected from the contents page the book's own (so the model form's printed pages use it)."""
+    row = _book_row_or_404(conn, path)
+    if not row["page_offset"] and row["toc_offset"]:
+        db.update_book_meta(conn, row["id"], {"page_offset": row["toc_offset"]})
+    return HTMLResponse(_render_suggestions(conn, path))
+
+
+@app.post("/library/book/indexed", response_class=HTMLResponse)
+def library_indexed(path: str = Form(...), indexed: bool = Form(...), conn=Depends(get_conn)):
+    """Mark a book fully indexed (every model in it is on the list or deliberately skipped), or undo that."""
+    b = _book_entry_or_404(conn, path)
+    db.set_indexed(conn, db.get_or_create_book(conn, path), indexed)
+    b = _book_entry_or_404(conn, path)
+    return HTMLResponse(templates.get_template("_book_indexed.html").render(b=b)
+                        + _render_suggestions(conn, path, oob=True))
 
 
 @app.post("/library/book")
@@ -649,3 +777,84 @@ def remove_from_study(study_id: int, model_id: int = Form(...), conn=Depends(get
     _study_or_404(conn, study_id)
     db.remove_from_study(conn, study_id, model_id)
     return _redirect(f"/studies/{study_id}")
+
+
+# --- library search (OCR), glossary ---
+
+@app.get("/search", response_class=HTMLResponse)
+def search(request: Request, q: str = "", conn=Depends(get_conn), oconn=Depends(get_ocr)):
+    q = " ".join(q.split())
+    present = books.scan()
+    progress = ocr.progress(oconn, present)
+    if not q:
+        return templates.TemplateResponse(request, "search.html", {"q": q, "progress": progress})
+    alternatives = [a for a in db.glossary_alternatives(conn, q) if len(a) >= 2]
+    allowed = set(present) - db.hidden_paths(conn)
+    rows = db.library_rows(conn)
+    results = ocr.search(oconn, [q, *alternatives], allowed)
+    for r in results:
+        r["title"] = rows[r["path"]]["title"] if r["path"] in rows else books.clean_title(r["path"])
+    return templates.TemplateResponse(request, "search.html", {
+        "q": q, "progress": progress, "alternatives": alternatives, "results": results,
+        "models": db.list_models(conn, q=q, sort="book")[:20],
+        # "+ Add" prefills the name; a Japanese query gets its English form ("Rhinoceros (サイ)").
+        "add_name": db.suggest(conn, "subject", q) or q,
+    })
+
+
+@app.get("/api/suggest", response_class=HTMLResponse)
+def suggest(request: Request, kind: str, target: str = "", conn=Depends(get_conn)):
+    """A suggestion chip for a quick-add field; htmx sends the field's own value (`name` or `designer`)."""
+    if kind not in ("subject", "designer"):
+        raise HTTPException(400)
+    params = request.query_params
+    value = db.suggest(conn, kind, params.get("text") or params.get("name") or params.get("designer") or "")
+    if not value:
+        return HTMLResponse("")
+    return HTMLResponse(templates.get_template("_suggestion.html").render(value=value, target=target))
+
+
+@app.get("/api/page-text", response_class=HTMLResponse)
+def page_text(request: Request, path: str, page: int, oconn=Depends(get_ocr)):
+    if not books.resolve(path):
+        raise HTTPException(404)
+    return templates.TemplateResponse(request, "_page_text.html", {"row": ocr.get_page(oconn, path, page), "page": page})
+
+
+@app.post("/ocr/pause")
+def ocr_pause(paused: bool = Form(...), back: str = Form("/library"), oconn=Depends(get_ocr)):
+    ocr.set_control(oconn, paused=int(paused))
+    return _redirect(back if back.startswith("/") else "/library")
+
+
+@app.post("/ocr/priority")
+def ocr_priority(path: str = Form(...), oconn=Depends(get_ocr)):
+    if not books.resolve(path):
+        raise HTTPException(404)
+    ocr.sync(oconn, ocr.sizes_and_mtimes([path]))
+    ocr.set_control(oconn, priority_path=path)
+    return _redirect("/library/book?" + urlencode({"path": path}))
+
+
+@app.get("/glossary", response_class=HTMLResponse)
+def glossary(request: Request, kind: str = "subject", q: str = "", conn=Depends(get_conn)):
+    if kind not in ("subject", "designer"):
+        kind = "subject"
+    return templates.TemplateResponse(request, "glossary.html", {
+        "kind": kind, "q": q, "entries": db.list_glossary(conn, kind, q),
+    })
+
+
+@app.post("/glossary")
+def save_glossary(kind: str = Form(...), ja: str = Form(...), en: str = Form(...), entry_id: str = Form(""),
+                  conn=Depends(get_conn)):
+    if kind not in ("subject", "designer"):
+        raise HTTPException(400)
+    db.save_glossary(conn, kind, ja, en, _opt_int(entry_id))
+    return _redirect("/glossary?" + urlencode({"kind": kind}))
+
+
+@app.post("/glossary/{entry_id}/delete")
+def delete_glossary(entry_id: int, kind: str = Form("subject"), conn=Depends(get_conn)):
+    db.delete_glossary(conn, entry_id)
+    return _redirect("/glossary?" + urlencode({"kind": kind}))

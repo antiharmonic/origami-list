@@ -232,6 +232,20 @@ main.wide { max-width: none; padding: 0; }
 .book-models li.here { background: var(--bg); box-shadow: inset 3px 0 0 var(--accent); }
 .book-models .page-no { color: var(--muted); min-width: 3rem; font-variant-numeric: tabular-nums; }
 button.page-no { padding: 0 .3rem; font-size: .85rem; text-align: left; }
+.book-indexed { display: flex; gap: .5rem; align-items: baseline; margin-top: .5rem; font-size: .85rem; }
+.book-indexed button { font-size: .85rem; padding: .2rem .55rem; }
+.indexed-yes { color: var(--accent); font-weight: 600; }
+button.linkish { border: none; background: none; padding: 0; color: var(--accent); text-decoration: underline; font-size: inherit; }
+.suggestions { list-style: none; padding: 0; margin: .4rem 0 .6rem; }
+.suggestions li { padding: .25rem .2rem; border-top: 1px solid var(--border); }
+.suggestions li.here { background: var(--bg); box-shadow: inset 3px 0 0 var(--accent); }
+/* Two lines per suggestion: page, ✓ and name; then designer and the buttons. */
+.suggestion-row { display: grid; grid-template-columns: auto auto 1fr auto auto; gap: .3rem .35rem; align-items: center; }
+.suggestion-row input[name=name] { grid-column: 3 / 6; min-width: 0; }
+.suggestion-row input[name=designer] { grid-column: 3; min-width: 0; }
+.suggestion-row button { font-size: .85rem; padding: .15rem .45rem; }
+.suggestion-row .page-no { min-width: 3rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.suggestion-row .verified { width: 1rem; text-align: center; color: var(--muted); }
 @media (max-width: 900px) {
   .reader { flex-direction: column-reverse; height: auto; }
   .reader-view { height: 75vh; }
@@ -360,3 +374,33 @@ button.page-no { padding: 0 .3rem; font-size: .85rem; text-align: left; }
   .model { flex-wrap: wrap; }
   .actions { flex-direction: row; width: 100%; justify-content: space-between; }
 }
+
+/* library search (OCR) and glossary */
+.nav-search input { width: 12rem; padding: .3rem .6rem; border-radius: 999px; font-size: .9rem; }
+.search-form { display: flex; gap: .5rem; margin-bottom: .5rem; }
+.search-form input { flex: 1; max-width: 32rem; }
+.search-models { margin-bottom: 1.5rem; }
+.search-book { border-top: 1px solid var(--border); padding: .8rem 0; }
+.search-book h3 { margin: 0 0 .5rem; font-size: 1.05rem; display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; }
+.search-runs { display: flex; flex-direction: column; gap: .7rem; }
+.search-run { display: flex; gap: .8rem; align-items: flex-start; }
+.search-thumb img { width: 72px; border: 1px solid var(--border); border-radius: 4px; background: #fff; display: block; }
+.snippet { margin: .2rem 0 .4rem; font-size: .9rem; color: var(--muted); }
+.snippet mark { background: var(--star); color: #000; border-radius: 2px; padding: 0 .1rem; }
+.ocr-progress { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin: .4rem 0 1rem; }
+.ocr-progress button, .ocr-status button { font-size: .8rem; padding: .1rem .5rem; }
+.ocr-status { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.inline-form { display: inline; }
+.suggest-slot:empty { display: none; }
+.suggestion { font-size: .85rem; padding: .1rem .5rem; border-radius: 999px; border-style: dashed; margin-top: -.3rem; }
+.page-text-body {
+  max-height: 16rem; overflow: auto; white-space: pre-wrap; font-size: .8rem; margin: 0 0 .5rem;
+  padding: .5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; user-select: text;
+}
+.glossary-add, .glossary-filter { display: flex; gap: .5rem; align-items: center; margin: 1rem 0 .5rem; flex-wrap: wrap; }
+.glossary { border-collapse: collapse; width: 100%; max-width: 760px; }
+.glossary td { padding: .2rem 0; border-bottom: 1px solid var(--border); }
+.glossary th { text-align: left; font-weight: 600; color: var(--muted); font-size: .85rem; }
+.glossary-row { display: flex; gap: .4rem; align-items: center; }
+.glossary-row input { flex: 1; min-width: 0; }
+.chip.active { border-color: currentColor; font-weight: 600; }

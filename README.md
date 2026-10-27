@@ -14,6 +14,14 @@ docker compose logs -f
 ## Reading a book
 A book's page (click it in the **Library**) shows the PDF on the right and a panel on the left. Scroll to a model, type its name in **Add a model** and press Enter: the page is filled in from the viewer, and the designer, status and studies stay for the next one. Click a model's `p.N` to jump back to it. PDF.js is downloaded when the image is built; bump `PDFJS_VERSION`/`PDFJS_SHA256` in the `Dockerfile` to upgrade it.
 
+## Searching your books
+Every book's pages are read in the background (the `ocr` service: the PDF's own text where it has one, otherwise OCR in English and Japanese), newest books first. It takes several hours for the whole library the first time, then only new books. Search from the box in the top bar: it lists matching models from your list, then every book page that mentions the word, grouped into page runs, each with **+ Add** to open the book there with the name filled in. Progress and a **Pause** button are on the Library page; a book's page has **Read this book next**.
+
+The **Glossary** (Import / export page) maps Japanese to English: searching "rhinoceros" also finds サイ, and quick add suggests "Rhinoceros (サイ)" and given-name-first designers ("Fumiaki Kawahata"). Saving a model named "Gazelle (ガゼル)" teaches it ガゼル. On the book page, **Page text** shows the text of the current page, so you can select a Japanese title and use it as the name.
+
+## Cataloguing a book from its contents page
+Once a book has been read, its page shows **Suggested from contents**: the entries of its table of contents, with their PDF pages (the offset between printed and PDF page numbers is detected where it can be, and **Use as book offset** saves it). ✓ means the name was also found on that page. Fix a name if needed and click **Add**, or ✕ for front matter and essays; **Add all ✓** adds every verified one, using quick add's status and studies. When you're done with a book, **Mark fully indexed** hides the suggestions. Japanese contents get glossary names ("Owl (フクロウ)") and known designers split off where possible, but expect to edit those. Books without a usable contents page (most magazines, picture-grid layouts) get no suggestions.
+
 ## Fold photos
 To add a photo of your fold, pick a file on the model form, drop one onto the photo field, or just paste an image (Ctrl+V) anywhere on the form. It's saved with the model when you click Save.
 

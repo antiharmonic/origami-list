@@ -10,3 +10,20 @@ services:
       - ${HOME}/Books/Origami:/books:ro
       - ./data:/data
       - /etc/localtime:/etc/localtime:ro  # show dates (e.g. book "added") in local time
+
+  # Reads every book's pages into data/ocr.db for library search (see app/ocr.py). Low priority and
+  # capped: one scan's huge pages once ate all the RAM. Pause it from the Library page if needed.
+  ocr:
+    image: origami-list  # built by the app service
+    pull_policy: never
+    depends_on: [app]
+    restart: unless-stopped
+    user: "1000:1000"
+    command: ["nice", "-n", "19", "python", "-m", "app.ocr_worker"]
+    environment:
+      OCR_WORKERS: "8"
+    mem_limit: 4g
+    cpus: 10
+    volumes:
+      - ${HOME}/Books/Origami:/books:ro
+      - ./data:/data

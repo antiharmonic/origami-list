@@ -1,0 +1,9 @@
+<form id="book-indexed" class="book-indexed" hx-post="/library/book/indexed" hx-swap="outerHTML">
+  <input type="hidden" name="path" value="{{ b.path }}">
+  {% if b.indexed %}
+  <span class="indexed-yes" title="Every model in this book is on the list, or was passed over on purpose">Fully indexed ✓</span>
+  <button type="submit" name="indexed" value="0" class="linkish">undo</button>
+  {% else %}
+  <button type="submit" name="indexed" value="1" title="Every model you want from this book is on the list; hides the suggestions">Mark fully indexed</button>
+  {% endif %}
+</form>
