@@ -17,9 +17,13 @@
 - [ ] Glossary: review the seeded designer kanji; grow the subject list as needed
 - [ ] Library: editor field and structured tags (designers/notes are free text for now)
 - [ ] Library: overall complexity per book
+- [ ] Single diagram PDFs (kept as one-model books in `~/Books/Origami/diagrams/`, named `Designer - Model Name.pdf`):
+  - library folder filter (or a "Books / Diagrams" toggle) so they don't crowd out the books
+  - one-click "Add as model" on short PDFs: model at page 1, name and designer from the filename, and mark the PDF fully indexed
 - [ ] External integration with Gilad's Origami Database (giladorigami.com):
   - links from designers/authors and books to their Gilad pages
   - a search bar that jumps straight to Gilad's model search
   - design it alongside our own search needs (one box that searches our models/library and offers "search Gilad" as an option?)
 - [ ] Answer `HEAD` requests on `/books/...` (currently 405; GET with ranges works)
 - [ ] Notes: linkify bare URLs (needs `linkify-it-py`)
+- [ ] Favicon: an origami crane
