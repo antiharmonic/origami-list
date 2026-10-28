@@ -83,10 +83,15 @@ def books_warning():
     return None
 
 
+def viewer_url(path, page=None):
+    """The book page (embedded viewer) at a PDF page, for model links."""
+    return "/library/book?" + urlencode({"path": path, **({"page": page} if page else {})})
+
+
 templates.env.globals.update(STATUSES=db.STATUSES, STATUS_LABELS=db.STATUS_LABELS, urlencode=urlencode,
                              todo_count=todo_count, BOOK_STATUSES=db.BOOK_STATUSES,
                              BOOK_STATUS_LABELS=db.BOOK_STATUS_LABELS, books_warning=books_warning, all_studies=all_studies,
-                             book_missing=lambda path: bool(path) and not books.exists(path))
+                             book_missing=lambda path: bool(path) and not books.exists(path), viewer_url=viewer_url)
 
 
 def get_conn():

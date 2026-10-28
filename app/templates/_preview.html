@@ -1,5 +1,5 @@
 {% if ok %}
-<a href="/books/{{ book | urlpath }}#page={{ page }}" target="_blank" rel="noopener">
+<a href="{{ viewer_url(book, page) }}" target="_blank" rel="noopener">
   <img src="/thumb?{{ urlencode({'book': book, 'page': page}) }}" alt="No page {{ page }} in this book">
 </a>
 {% if cover %}

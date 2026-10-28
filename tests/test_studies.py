@@ -2,10 +2,10 @@
 
 - Studies are created and chosen on the model form (names are case-insensitive, a new one can be typed).
 - The list filters by study (in / not in), and the shown models can be added to a study in one go.
-- A study page shows its models, with fold photos preferred over diagram thumbnails.
+- A study page shows its models, with fold photos preferred over diagram thumbnails; diagram links open the book viewer.
 """
 from app import db
-from tests.helpers import INSECTS, study_ids
+from tests.helpers import INSECTS, viewer_href, study_ids
 
 
 def test_studies_from_the_model_form(client, conn):
@@ -45,6 +45,7 @@ def test_study_filters_bulk_add_and_page(client, conn):
     db.update_model(conn, rhinos[1]["id"], {"book_id": db.get_or_create_book(conn, INSECTS), "page": 2})
     page = client.get(f"/studies/{sid}").text
     assert 'src="/photos/1.jpg"' in page and "/thumb?" in page and "1 folded · 0 attempted · 1 to go" in page
+    assert page.count(viewer_href(INSECTS, 2)) == 2 and "#page=" not in page
 
     client.post(f"/studies/{sid}/remove", data={"model_id": rhinos[0]["id"]})
     assert db.get_study(conn, sid)["model_count"] == 1 and len(db.list_models(conn)) == 3

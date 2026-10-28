@@ -7,11 +7,12 @@
 - "Save and new" carries the designer, book and studies over to the next model.
 - A model's page is always the PDF page; a printed page converts through the book's offset, which the form saves back to the book.
 - The form's preview shows the book's cover until a page is entered, then that page.
+- Model links (row thumbnail and title, form preview) open the book page's viewer, not the raw PDF.
 """
 import re
 
 from app import db
-from tests.helpers import INSECTS, order
+from tests.helpers import INSECTS, viewer_href, order
 
 
 def test_move_between_neighbours(conn):
@@ -124,3 +125,10 @@ def test_preview_shows_cover_until_a_page_is_entered(client):
     assert "page=2" in client.get("/api/preview", params={"book": INSECTS}).text
     r = client.get("/api/preview", params={"book": INSECTS, "page": "1"})
     assert "Cover of" not in r.text and "PDF page 1" in r.text
+    assert viewer_href(INSECTS, 1) in r.text and "/books/" not in r.text
+
+
+def test_model_links_open_the_book_viewer(client, conn):
+    client.post("/models", data={"name": "Beetle", "book": INSECTS, "page": "2"})
+    page = client.get("/").text
+    assert page.count(viewer_href(INSECTS, 2)) == 2 and "#page=" not in page

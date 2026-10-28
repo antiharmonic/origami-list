@@ -2,7 +2,7 @@
 {% if missing %}
   {% set href = m.url %}
 {% elif m.book_path %}
-  {% set href = "/books/" ~ (m.book_path | urlpath) ~ "#page=" ~ (m.page or 1) %}
+  {% set href = viewer_url(m.book_path, m.page) %}
 {% else %}
   {% set href = m.url %}
 {% endif %}

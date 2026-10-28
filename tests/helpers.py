@@ -1,5 +1,6 @@
 """Shared test data and helpers (fixtures live in conftest.py)."""
 import shutil
+from urllib.parse import urlencode
 
 import pytest
 
@@ -9,6 +10,11 @@ from app import db, ocr
 NATURE = "sub/Kato - Nature Study.pdf"
 INSECTS = "Lang - Origami Insects (z-library.sk, 1lib.sk).pdf"
 HQ = "Lang - Insects HQ.pdf"
+
+
+def viewer_href(path, page):
+    """The rendered href of a link to the book viewer at a page."""
+    return 'href="/library/book?' + urlencode({"path": path, "page": page}).replace("&", "&amp;") + '"'
 
 # The user's original hand-made CSV format.
 ORIGINAL_CSV = """model,author,complexity,suggested_paper,book,file,page,folded,notes
