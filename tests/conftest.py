@@ -1,7 +1,12 @@
+import importlib.util
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app import books, config, db
+from app import books, config, db, translate
+
+# The browser tests need Playwright, which only the e2e image has (docker compose --profile test run --rm e2e).
+collect_ignore = [] if importlib.util.find_spec("playwright") else ["e2e"]
 
 
 def make_pdf(path, pages=2, text=None):
@@ -56,3 +61,19 @@ def client(dirs):
     from app.main import app
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def gemini(monkeypatch):
+    """A fake Gemini: records request bodies, answers with `reply` (or raises `fail`). No network."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    fake = {"calls": [], "reply": "**14.** Fold the corner.\n→ only the top layer", "fail": None}
+
+    def call(body, timeout=None):
+        fake["calls"].append(body)
+        if fake["fail"]:
+            raise translate.TranslateError(fake["fail"])
+        return fake["reply"], "fake-model"
+    monkeypatch.setattr(translate, "call", call)
+    monkeypatch.setattr(translate, "render_page", lambda path, page: b"\x89PNG fake")
+    return fake

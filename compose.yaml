@@ -1,6 +1,8 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      target: app
     image: origami-list
     restart: unless-stopped
     user: "1000:1000"
@@ -30,3 +32,12 @@ services:
     volumes:
       - ${HOME}/Books/Origami:/books:ro
       - ./data:/data
+
+  # Browser tests (tests/e2e, Playwright + Chromium). Only built and run on request:
+  #   docker compose --profile test run --rm --build e2e
+  e2e:
+    build:
+      context: .
+      target: e2e
+    image: origami-list-e2e
+    profiles: [test]

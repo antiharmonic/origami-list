@@ -1,5 +1,7 @@
 # Origami List
 
+[![Tests](https://github.com/antiharmonic/origami-list/actions/workflows/tests.yml/badge.svg)](https://github.com/antiharmonic/origami-list/actions/workflows/tests.yml)
+
 A to-fold list for origami models. It serves the PDFs in `~/Books/Origami` over HTTP so each entry opens at the right page, and shows a thumbnail of that page.
 
 Open http://localhost:5748 (or `http://<this-pc>:5748` from another device on the LAN).
@@ -54,5 +56,7 @@ Book files are matched by filename anywhere under `~/Books/Origami`.
 
 ## Tests
 ```sh
-docker compose run --rm --no-deps app pytest -q
+docker compose run --rm --no-deps app pytest -q                 # unit and route tests
+docker compose --profile test run --rm --build e2e              # browser tests
 ```
+See [TESTING.md](TESTING.md) for what each layer covers, the real-data check, and the routine before deploying a change.

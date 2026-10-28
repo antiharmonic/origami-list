@@ -12,9 +12,11 @@
   function setStatus(msg) { status.textContent = msg; }
 
   function load() {
+    // Read-only until the saved text arrives, so typing straight away isn't overwritten by the load.
+    text.readOnly = true;
     return fetch("/notes").then(function (r) { return r.json(); }).then(function (d) {
       text.value = d.body; rev = d.rev; dirty = false; conflict = false; setStatus("");
-    });
+    }).finally(function () { text.readOnly = false; });
   }
 
   function form(force) {

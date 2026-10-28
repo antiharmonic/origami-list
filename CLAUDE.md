@@ -14,7 +14,9 @@ Everything runs in Docker; there is no local venv.
 docker compose up -d --build                               # rebuild + (re)start; code is baked into the image, so rebuild after any change
 docker compose logs -f              # or: docker compose logs -f ocr   (the OCR worker)
 docker compose run --rm --no-deps app pytest -q            # full test suite (needs a rebuild first to pick up changes)
-docker compose run --rm --no-deps app pytest -q tests/test_app.py::test_thumbnail   # single test
+docker compose run --rm --no-deps app pytest -q tests/test_reader.py::test_thumbnail   # single test
+docker compose --profile test run --rm --build e2e          # browser tests (Playwright; tests/e2e)
+docker compose run --rm --no-deps -e REAL_DATA=1 app pytest -q tests/test_real_data.py   # migrations + every page on a copy of the real data
 docker compose exec -T app python -m app.import_csv - < the-list.csv               # CSV import from stdin
 ```
 
@@ -24,6 +26,7 @@ There is no linter configured.
 
 - `compose.yaml` has two services sharing one image (built by `app`): `app`, and `ocr`, the background OCR worker (`python -m app.ocr_worker` under `nice`, `mem_limit: 4g`, `OCR_WORKERS`). `app` mounts `~/Books/Origami` read-only at `/books` and `./data` at `/data`. It runs as uid 1000 with `restart: unless-stopped`, which makes it start on boot because `docker.service` is enabled. Port 5748 is exposed on all interfaces (LAN access, no auth, by design).
 - `./data/` holds `origami.db` (including cached translations), `ocr.db` (page text for search; regenerable, not backed up), `thumbs/` (a disposable cache) and `photos/` (user uploads). It is gitignored and is the only state.
+- The `Dockerfile` has stages `base` → `app` (what compose runs; `target: app`) and `base` → `e2e-deps` → `e2e` (Playwright + Chromium for the browser tests, the compose `e2e` service under the `test` profile).
 - htmx and SortableJS are vendored in `app/static/`. No CDN is used and there is no build step.
 
 ## Architecture notes
@@ -47,4 +50,4 @@ There is no linter configured.
 
 ## Tests
 
-`tests/conftest.py` builds a temporary books dir containing hand-written minimal PDFs (`make_pdf`) and a `secret.pdf` outside it, used for the traversal tests. It also points `config` at temp dirs. `test_thumbnail` is skipped when `pdftoppm` isn't installed, so run the tests inside the container.
+See `TESTING.md`. The suite is the requirements list: each `tests/test_<area>.py` opens with a docstring of the requirements it protects; keep those in step when behaviour changes on purpose. `tests/conftest.py` builds a temporary books dir of hand-written minimal PDFs (`make_pdf`) plus a `secret.pdf` outside it for the traversal tests, points `config` at temp dirs (autouse `dirs`), and provides `conn`, `client` and `gemini` (fake translation engine; tests never hit the network). Shared data/helpers are in `tests/helpers.py`. `tests/e2e/` (only collected when Playwright is installed, i.e. in the `e2e` image built from the Dockerfile's `e2e` stage) runs the app with uvicorn in a thread (`server`) and drives Chromium with the real PDF.js; it covers the inline JavaScript in the templates and `static/`. `tests/test_real_data.py` is opt-in (`REAL_DATA=1`): it backs up `/data`'s databases to a temp dir and renders every page on the copy. Run tests inside the containers (`pdftoppm`/`tesseract` are needed). CI: `.github/workflows/tests.yml` runs unit and browser tests on push.
