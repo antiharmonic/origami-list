@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A self-hosted to-fold list for origami models. FastAPI with Jinja2 templates and htmx, backed by SQLite. It runs as one Docker Compose service that serves the user's PDF library over HTTP. The point of serving the PDFs is that entries deep-link to exact pages (`/books/<path>#page=N` opens in Firefox's PDF viewer), and pages can be rendered as thumbnails.
 
+## Picking the project back up
+
+- `TODO.md` is the roadmap: open ideas and decisions already made. Check it before proposing features. `TESTING.md` explains the test layers and the routine to run before deploying.
+- Backups live in a separate repo, `../origami-list-backup` (GitHub `antiharmonic/origami-list-backup`). It is a systemd user timer, `origami-list-backup.timer`, that runs daily and writes a tgz to `/net/chill` when that's mounted.
+- Personal files are gitignored and must stay uncommitted: `the-list.csv` (the user's original list), `grok_feedback.md`, `.env` (`GEMINI_API_KEY`; never print it) and `data/`.
+- How the user likes to work:
+  - Plan bigger features first (`/plan`).
+  - Commit and push only when asked. Pushing is over SSH; if it fails with `publickey`, the user runs `ssh-add`. History rewrites and force-pushes are run by the user.
+  - Verify against the real data read-only: use `tests/test_real_data.py`, never mutate `data/`.
+  - Keep resource use bounded (the OCR worker once exhausted RAM).
+- `gh` isn't installed. Check CI runs via `https://api.github.com/repos/antiharmonic/origami-list/actions/runs`.
+
 ## Commands
 
 Everything runs in Docker; there is no local venv.
